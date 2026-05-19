@@ -11,11 +11,14 @@ import requests
 import os
 import shutil
 import traceback
+import json
+import re
 from dotenv import load_dotenv
 from pypdf import PdfReader
-from sentence_transformers import SentenceTransformer
 import faiss
 import numpy as np
+
+from embeddings import encode_texts, encode_query, backend as embed_backend
 
 load_dotenv()
 
@@ -42,12 +45,46 @@ db = client["ai_doc_db"]
 chat_collection = db["chats"]
 
 # ---------- GLOBAL STATE ----------
-embed_model = SentenceTransformer("all-MiniLM-L6-v2")
 app.state.chat_data = {}
 
 # ---------- GROQ CONFIG ----------
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL   = "llama-3.3-70b-versatile"
+
+# Free tier: 12k TPM — keep each request well under that
+RETRIEVE_K = 3
+MAX_CHUNK_CHARS = 450
+MAX_CONTEXT_CHARS = 4500
+MAX_HISTORY_TURNS = 2
+MAX_HISTORY_CHARS = 400
+GROQ_MAX_OUTPUT_TOKENS = 512
+
+
+def _clip(text: str, limit: int) -> str:
+    text = (text or "").strip()
+    if len(text) <= limit:
+        return text
+    return text[:limit].rstrip() + "…"
+
+
+def _trim_history(history: list) -> list:
+    recent = history[-MAX_HISTORY_TURNS:] if len(history) > MAX_HISTORY_TURNS else history
+    return [
+        {"role": m["role"], "content": _clip(m["content"], MAX_HISTORY_CHARS)}
+        for m in recent
+    ]
+
+
+def _format_groq_error(err: str, status: int) -> str:
+    low = err.lower()
+    if status == 413 or "too large" in low or "tpm" in low:
+        return (
+            "⚠️ Groq free tier limit: request used too many tokens. "
+            "Try again with a shorter question, or click Clear Messages and ask again."
+        )
+    if "rate" in low or "limit" in low:
+        return "⚠️ Groq free limit reached. Wait about 60 seconds, then try again."
+    return f"⚠️ Groq error: {err}"
 
 # ---------- REQUEST MODEL ----------
 class AskRequest(BaseModel):
@@ -56,6 +93,13 @@ class AskRequest(BaseModel):
     chatId: str | None = None
     systemPrompt: str | None = None   # custom system prompt from frontend
     mode: str = "rag"                 # "rag" = PDF context required, "chat" = free chat
+
+
+class KnowledgeMapRequest(BaseModel):
+    question: str
+    answer: str
+    chatId: str | None = None
+    mode: str = "rag"
 
 
 # ---------- HEALTH ----------
@@ -67,11 +111,12 @@ def home():
         "mongo_set":    bool(os.getenv("MONGO_URL")),
         "model":        GROQ_MODEL,
         "chats_in_mem": len(app.state.chat_data),
+        "embed_backend": embed_backend(),
     }
 
 
 # ---------- CHUNKING ----------
-def chunk_text(text: str, chunk_size: int = 300, overlap: int = 50) -> list:
+def chunk_text(text: str, chunk_size: int = 150, overlap: int = 30) -> list:
     words = text.split()
     print(f"[CHUNK] {len(words)} words total")
     chunks, i = [], 0
@@ -99,35 +144,40 @@ async def get_or_create_chat_data(chatId: str):
     print(f"[MEM] Loaded from DB: {len(documents)} chunks, {len(pdfs)} PDFs")
 
     if not documents:
-        app.state.chat_data[chatId] = {"documents": [], "index": None, "pdfs": pdfs}
+        app.state.chat_data[chatId] = {
+            "documents": [], "index": None, "pdfs": pdfs, "vectorizer": None,
+        }
         return app.state.chat_data[chatId]
 
-    emb = np.array(embed_model.encode(documents)).astype("float32")
+    emb, vec = encode_texts(documents)
     index = faiss.IndexFlatL2(emb.shape[1])
     index.add(emb)
-    app.state.chat_data[chatId] = {"documents": documents, "index": index, "pdfs": pdfs}
+    app.state.chat_data[chatId] = {
+        "documents": documents, "index": index, "pdfs": pdfs, "vectorizer": vec,
+    }
     print(f"[MEM] FAISS rebuilt: {index.ntotal} vectors")
     return app.state.chat_data[chatId]
 
 
-def retrieve_context(question: str, chatId: str, k: int = 6) -> str:
+def retrieve_context(question: str, chatId: str, k: int = RETRIEVE_K) -> str:
     if chatId not in app.state.chat_data:
         return ""
     data = app.state.chat_data[chatId]
     if data["index"] is None or not data["documents"]:
         return ""
 
-    query = np.array(embed_model.encode([question])).astype("float32")
+    query = encode_query(question, data.get("vectorizer"))
     distances, indices = data["index"].search(query, k)
     print(f"[RETRIEVE] distances={[round(float(d),2) for d in distances[0]]}")
 
     results = [
-        data["documents"][idx]
+        _clip(data["documents"][idx], MAX_CHUNK_CHARS)
         for idx in indices[0]
         if idx != -1 and idx < len(data["documents"])
     ]
-    print(f"[RETRIEVE] {len(results)} chunks returned")
-    return "\n\n---\n\n".join(results)
+    context = _clip("\n\n---\n\n".join(results), MAX_CONTEXT_CHARS)
+    print(f"[RETRIEVE] {len(results)} chunks, {len(context)} chars sent to Groq")
+    return context
 
 
 # ---------- GROQ LLM ----------
@@ -148,19 +198,22 @@ def call_groq(context: str, question: str, history: list, custom_system: str = N
     # Use custom system prompt from frontend if provided
     system_prompt = custom_system.strip() if custom_system and custom_system.strip() else default_system
 
-    recent = history[-6:] if len(history) > 6 else history
-    history_msgs = [{"role": m["role"], "content": m["content"]} for m in recent]
+    history_msgs = _trim_history(history)
+    user_content = _clip(
+        f"CONTEXT:\n{context}\n\nQUESTION:\n{question}",
+        MAX_CONTEXT_CHARS + 200,
+    )
 
     messages = (
-        [{"role": "system", "content": system_prompt}]
+        [{"role": "system", "content": _clip(system_prompt, 800)}]
         + history_msgs
-        + [{"role": "user", "content": f"CONTEXT:\n{context}\n\nQUESTION:\n{question}"}]
+        + [{"role": "user", "content": user_content}]
     )
 
     payload = {
         "model":       GROQ_MODEL,
         "messages":    messages,
-        "max_tokens":  1024,
+        "max_tokens":  GROQ_MAX_OUTPUT_TOKENS,
         "temperature": 0.2,
         "top_p":       0.9,
     }
@@ -184,11 +237,121 @@ def call_groq(context: str, question: str, history: list, custom_system: str = N
     if "error" in data:
         err = data["error"].get("message", "Unknown error")
         print(f"[GROQ] ❌ {err}")
-        if "rate" in err.lower() or "limit" in err.lower():
-            return "⚠️ Rate limit hit. Please wait a moment and try again."
-        return f"⚠️ Groq error: {err}"
+        return _format_groq_error(err, resp.status_code)
 
     return "⚠️ Unexpected response from Groq"
+
+
+def _parse_graph_json(raw: str) -> dict | None:
+    if not raw:
+        return None
+    text = raw.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        match = re.search(r"\{[\s\S]*\}", text)
+        if not match:
+            return None
+        try:
+            data = json.loads(match.group())
+        except json.JSONDecodeError:
+            return None
+    if not isinstance(data, dict):
+        return None
+    nodes = data.get("nodes") or []
+    edges = data.get("edges") or []
+    if not isinstance(nodes, list) or not isinstance(edges, list) or not nodes:
+        return None
+    clean_nodes, ids = [], set()
+    for i, n in enumerate(nodes[:12]):
+        if not isinstance(n, dict):
+            continue
+        nid = str(n.get("id") or f"n{i}")
+        label = str(n.get("label") or nid).strip()[:48]
+        if not label:
+            continue
+        group = n.get("group") if n.get("group") in ("core", "related", "context") else "related"
+        clean_nodes.append({"id": nid, "label": label, "group": group})
+        ids.add(nid)
+    if len(clean_nodes) < 2:
+        return None
+    clean_edges = []
+    for e in edges[:18]:
+        if not isinstance(e, dict):
+            continue
+        src, tgt = str(e.get("source", "")), str(e.get("target", ""))
+        if src in ids and tgt in ids and src != tgt:
+            clean_edges.append({
+                "source": src,
+                "target": tgt,
+                "label": str(e.get("label") or "relates to")[:32],
+            })
+    if not clean_edges and len(clean_nodes) >= 2:
+        hub = clean_nodes[0]["id"]
+        for n in clean_nodes[1:]:
+            clean_edges.append({"source": hub, "target": n["id"], "label": "relates to"})
+    return {"nodes": clean_nodes, "edges": clean_edges}
+
+
+def _fallback_knowledge_graph(question: str, answer: str) -> dict:
+    q_words = [w for w in re.findall(r"[A-Za-z]{3,}", question) if w.lower() not in ("the", "and", "for", "what", "how", "why")]
+    topic = " ".join(q_words[:3]).title() or "Topic"
+    snippets = re.split(r"[.!?\n]+", answer)
+    labels = [topic]
+    for s in snippets:
+        s = s.strip()
+        if 8 < len(s) < 60:
+            labels.append(s[:40])
+        if len(labels) >= 7:
+            break
+    while len(labels) < 4:
+        labels.append(f"Concept {len(labels)}")
+    nodes = [{"id": f"n{i}", "label": lb, "group": "core" if i == 0 else "related"} for i, lb in enumerate(labels[:7])]
+    edges = [{"source": nodes[0]["id"], "target": n["id"], "label": "relates to"} for n in nodes[1:]]
+    return {"nodes": nodes, "edges": edges}
+
+
+def call_groq_knowledge_map(question: str, answer: str) -> dict:
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key:
+        return _fallback_knowledge_graph(question, answer)
+
+    prompt = (
+        "Extract a semantic knowledge graph from the Q&A below.\n"
+        "Return ONLY valid JSON (no markdown):\n"
+        '{"nodes":[{"id":"n1","label":"short concept","group":"core|related|context"}],'
+        '"edges":[{"source":"n1","target":"n2","label":"verb phrase"}]}\n'
+        "Rules: 5-9 nodes, 5-12 edges, 1-2 nodes with group core (main topic), "
+        "short labels (2-4 words), meaningful edge labels.\n\n"
+        f"QUESTION:\n{question[:300]}\n\nANSWER:\n{answer[:900]}"
+    )
+    payload = {
+        "model": GROQ_MODEL,
+        "messages": [
+            {"role": "system", "content": "You output only valid JSON knowledge graphs."},
+            {"role": "user", "content": prompt},
+        ],
+        "max_tokens": 384,
+        "temperature": 0.15,
+    }
+    try:
+        resp = requests.post(
+            GROQ_API_URL,
+            json=payload,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            timeout=25,
+        )
+        data = resp.json()
+        if "choices" in data:
+            parsed = _parse_graph_json(data["choices"][0]["message"]["content"])
+            if parsed:
+                return parsed
+    except Exception:
+        pass
+    return _fallback_knowledge_graph(question, answer)
 
 
 # ---------- GROQ FREE CHAT (no RAG context) ----------
@@ -200,19 +363,18 @@ def call_groq_chat(question: str, history: list, custom_system: str = None) -> s
     default_system = "You are a helpful, friendly AI assistant. Answer clearly and concisely."
     system_prompt  = custom_system.strip() if custom_system and custom_system.strip() else default_system
 
-    recent = history[-6:] if len(history) > 6 else history
-    history_msgs = [{"role": m["role"], "content": m["content"]} for m in recent]
+    history_msgs = _trim_history(history)
 
     messages = (
-        [{"role": "system", "content": system_prompt}]
+        [{"role": "system", "content": _clip(system_prompt, 800)}]
         + history_msgs
-        + [{"role": "user", "content": question}]
+        + [{"role": "user", "content": _clip(question, 1200)}]
     )
 
     payload = {
         "model":       GROQ_MODEL,
         "messages":    messages,
-        "max_tokens":  1024,
+        "max_tokens":  GROQ_MAX_OUTPUT_TOKENS,
         "temperature": 0.7,   # slightly more creative for free chat
         "top_p":       0.9,
     }
@@ -234,11 +396,11 @@ def call_groq_chat(question: str, history: list, custom_system: str = None) -> s
     if "error" in data:
         err = data["error"].get("message", "Unknown error")
         print(f"[GROQ CHAT] ❌ {err}")
-        if "rate" in err.lower() or "limit" in err.lower():
-            return "⚠️ Rate limit hit. Please wait a moment and try again."
-        return f"⚠️ Groq error: {err}"
+        return _format_groq_error(err, resp.status_code)
 
     return "⚠️ Unexpected response from Groq"
+
+
 async def process_single_pdf(file: UploadFile, current_chat_id: str, chat_data: dict) -> dict:
     safe_name = file.filename.replace(" ", "_")
     file_path = os.path.join(UPLOAD_DIR, safe_name)
@@ -266,13 +428,21 @@ async def process_single_pdf(file: UploadFile, current_chat_id: str, chat_data: 
 
     # Embed and index
     print(f"[UPLOAD] Encoding {len(chunks)} chunks for {safe_name}...")
-    new_emb = np.array(embed_model.encode(chunks)).astype("float32")
-
-    if chat_data["index"] is None:
+    if embed_backend() == "tfidf" and chat_data.get("documents"):
+        all_docs = chat_data["documents"] + chunks
+        new_emb, vec = encode_texts(all_docs)
+        chat_data["vectorizer"] = vec
         chat_data["index"] = faiss.IndexFlatL2(new_emb.shape[1])
-
-    chat_data["index"].add(new_emb)
-    chat_data["documents"].extend(chunks)
+        chat_data["index"].add(new_emb)
+        chat_data["documents"] = all_docs
+    else:
+        new_emb, vec = encode_texts(chunks, chat_data.get("vectorizer"))
+        if vec is not None:
+            chat_data["vectorizer"] = vec
+        if chat_data["index"] is None:
+            chat_data["index"] = faiss.IndexFlatL2(new_emb.shape[1])
+        chat_data["index"].add(new_emb)
+        chat_data["documents"].extend(chunks)
     chat_data["pdfs"].append(safe_name)
 
     # Persist to MongoDB immediately
@@ -406,6 +576,24 @@ async def ask(req: AskRequest):
     except Exception as e:
         traceback.print_exc()
         return {"answer": f"❌ Backend error: {str(e)}", "chatId": req.chatId}
+
+
+# ---------- KNOWLEDGE MAP ----------
+@app.post("/knowledge-map")
+async def knowledge_map(req: KnowledgeMapRequest):
+    try:
+        print(f"\n[GRAPH] '{req.question[:50]}' | mode={req.mode}")
+        if not req.question.strip() or not req.answer.strip():
+            return {"graph": {"nodes": [], "edges": []}}
+        skip = req.answer.strip().startswith(("❌", "⚠️"))
+        if skip:
+            return {"graph": {"nodes": [], "edges": []}}
+        graph = call_groq_knowledge_map(req.question, req.answer)
+        print(f"[GRAPH] {len(graph['nodes'])} nodes, {len(graph['edges'])} edges")
+        return {"graph": graph}
+    except Exception as e:
+        traceback.print_exc()
+        return {"graph": _fallback_knowledge_graph(req.question, req.answer), "warning": str(e)}
 
 
 # ---------- NEW CHAT ----------
