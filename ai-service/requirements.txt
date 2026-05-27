@@ -1,0 +1,15 @@
+fastapi
+uvicorn
+python-dotenv
+pypdf
+sentence-transformers
+faiss-cpu
+numpy
+scikit-learn
+requests
+motor
+bcrypt
+PyJWT
+python-docx
+pandas
+openpyxl
