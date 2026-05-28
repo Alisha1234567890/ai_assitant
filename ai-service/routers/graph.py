@@ -10,7 +10,7 @@ from datetime import datetime
 from bson import ObjectId
 from core.database import chat_collection
 from models.schemas import KnowledgeMapRequest, GraphPositionsRequest, GraphBuildRequest
-from services.rag_service import embed_model, GROQ_API_URL, GROQ_MODEL
+from services.rag_service import get_embed_model, GROQ_API_URL, GROQ_MODEL, GROQ_FAST_MODEL, get_http_client, retrieve_context_async
 import graph_engine as ge
 
 router = APIRouter(tags=["graph"])
@@ -35,7 +35,7 @@ async def _build_pdf_graph_for_chat(chat_id: str, pdf_name: str, chunk_texts: li
         return
     existing = await _get_chat_pdf_graphs(chat_id)
     color_idx = len([g for g in existing if g.get("pdfId") != ge.pdf_id_from_name(pdf_name)])
-    new_sub = ge.build_pdf_subgraph(pdf_name, chunk_texts, embed_model, color_index=color_idx)
+    new_sub = ge.build_pdf_subgraph(pdf_name, chunk_texts, get_embed_model(), color_index=color_idx)
     merged_list = ge.upsert_pdf_graph(existing, new_sub)
     chat = await chat_collection.find_one({"_id": ObjectId(chat_id)}) or {}
     positions = chat.get("graphPositions", {})
@@ -47,7 +47,7 @@ async def _get_merged_graph_payload(chat_id: str) -> dict:
     pdf_graphs = (chat or {}).get("pdfGraphs", [])
     positions = (chat or {}).get("graphPositions", {})
     viewport = (chat or {}).get("graphViewport", {"zoom": 1, "pan": {"x": 0, "y": 0}})
-    payload = ge.merge_chat_graph(pdf_graphs, embed_model)
+    payload = ge.merge_chat_graph(pdf_graphs, get_embed_model())
     payload["positions"] = {**payload.get("positions", {}), **positions}
     payload["viewport"] = viewport
     payload["hasPositions"] = len(positions) > 0
@@ -199,7 +199,7 @@ def parse_knowledge_map_json(raw: str) -> dict | None:
         center = nodes[0]["id"]
     return {"nodes": nodes[:15], "edges": edges[:25], "centerId": center}
 
-def call_groq_knowledge_map(question: str, answer: str | None, context: str | None = None) -> dict:
+async def call_groq_knowledge_map(question: str, answer: str | None, context: str | None = None) -> dict:
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
         return fallback_knowledge_map(question, answer)
@@ -219,7 +219,7 @@ def call_groq_knowledge_map(question: str, answer: str | None, context: str | No
         user_parts.append(f"DOCUMENT CONTEXT:\n{context[:1500]}")
 
     payload = {
-        "model": GROQ_MODEL,
+        "model": GROQ_FAST_MODEL, # Use fast model for UI elements like knowledge maps
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": "\n\n".join(user_parts)},
@@ -229,13 +229,18 @@ def call_groq_knowledge_map(question: str, answer: str | None, context: str | No
         "top_p": 0.9,
     }
 
-    resp = requests.post(
-        GROQ_API_URL,
-        json=payload,
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        timeout=25,
-    )
-    data = resp.json()
+    try:
+        client = get_http_client()
+        resp = await client.post(
+            GROQ_API_URL,
+            json=payload,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        )
+        data = resp.json()
+    except Exception as e:
+        print(f"[GRAPH] Groq call failed: {e}")
+        return fallback_knowledge_map(question, answer)
+
     if "choices" not in data:
         return fallback_knowledge_map(question, answer)
 
@@ -310,12 +315,11 @@ async def knowledge_map(request: Request, req: KnowledgeMapRequest):
                 return cached
 
         # Use RAG service for context
-        from services.rag_service import retrieve_context
         context = ""
         if req.chatId and ObjectId.is_valid(req.chatId):
-            context = retrieve_context(request.app.state, req.question, req.chatId)
+            context = await retrieve_context_async(request.app.state, req.question, req.chatId)
         
-        graph = call_groq_knowledge_map(req.question, req.answer, context)
+        graph = await call_groq_knowledge_map(req.question, req.answer, context)
         
         map_id = None
         if req.chatId and ObjectId.is_valid(req.chatId):

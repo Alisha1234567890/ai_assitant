@@ -63,10 +63,10 @@ export default function ExportDropdown({ onExport, loadingSummary }) {
           top: calc(100% + 8px);
           right: 0;
           width: 240px;
-          background: #fff;
+          background: var(--white);
           border-radius: 12px;
-          box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1);
-          border: 1px solid #e5e7eb;
+          box-shadow: 0 10px 30px rgba(245,184,0,0.1);
+          border: 1.5px solid var(--border-gold);
           z-index: 1000;
           overflow: hidden;
           animation: slideIn 0.2s ease-out;
@@ -77,12 +77,13 @@ export default function ExportDropdown({ onExport, loadingSummary }) {
         }
         .export-menu-header {
           padding: 12px 16px;
-          font-size: 11px;
-          font-weight: 600;
+          font-size: 10px;
+          font-weight: 700;
           text-transform: uppercase;
-          color: #6b7280;
-          background: #f9fafb;
-          border-bottom: 1px solid #e5e7eb;
+          letter-spacing: 0.05em;
+          color: var(--text-dim);
+          background: var(--light);
+          border-bottom: 1.5px solid var(--border-gold);
         }
         .export-item {
           display: flex;
@@ -93,11 +94,11 @@ export default function ExportDropdown({ onExport, loadingSummary }) {
           background: none;
           cursor: pointer;
           text-align: left;
-          transition: background 0.15s;
+          transition: all 0.15s;
           gap: 12px;
         }
         .export-item:hover:not(:disabled) {
-          background: #f3f4f6;
+          background: var(--grad-soft);
         }
         .export-item:disabled {
           opacity: 0.6;
@@ -106,51 +107,28 @@ export default function ExportDropdown({ onExport, loadingSummary }) {
         .export-item-icon {
           flex-shrink: 0;
           margin-top: 2px;
-          color: #4b5563;
+          color: var(--orange);
         }
         .export-item-label {
-          font-size: 14px;
-          font-weight: 500;
-          color: #111827;
+          font-size: 13px;
+          font-weight: 600;
+          color: var(--text);
         }
         .export-item-desc {
-          font-size: 12px;
-          color: #6b7280;
+          font-size: 11px;
+          color: var(--text-dim);
           margin-top: 2px;
         }
         .spinner-tiny {
           width: 16px;
           height: 16px;
-          border: 2px solid #e5e7eb;
-          border-top-color: #3b82f6;
+          border: 2px solid var(--border-gold);
+          border-top-color: var(--orange);
           border-radius: 50%;
           animation: spin 1s linear infinite;
         }
         @keyframes spin {
           to { transform: rotate(360deg); }
-        }
-        .btn-icon-label {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          padding: 6px 12px;
-          border-radius: 8px;
-          border: 1px solid #e5e7eb;
-          background: #fff;
-          color: #374151;
-          font-size: 13px;
-          font-weight: 500;
-          cursor: pointer;
-          transition: all 0.2s;
-        }
-        .btn-icon-label:hover {
-          background: #f9fafb;
-          border-color: #d1d5db;
-        }
-        .btn-icon-label.active {
-          background: #eff6ff;
-          border-color: #3b82f6;
-          color: #3b82f6;
         }
       `}</style>
     </div>

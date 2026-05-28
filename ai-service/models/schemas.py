@@ -38,3 +38,22 @@ class GraphBuildRequest(BaseModel):
 class SummaryRequest(BaseModel):
     chatId: str
     userId: str
+
+class QuizRequest(BaseModel):
+    chatId: str
+    userId: str
+    difficulty: str = "medium" # easy, medium, hard
+    topic: Optional[str] = None
+    pdfNames: Optional[List[str]] = None # New: Filter by specific files
+    count: int = 5
+    types: List[str] = ["mcq", "true_false", "fill_blank"]
+
+class QuizScoreSaveRequest(BaseModel):
+    quizId: str
+    chatId: str
+    userId: str
+    quizTitle: str # New
+    difficulty: str # New
+    score: int
+    total: int
+    answers: List[Dict[str, Any]]

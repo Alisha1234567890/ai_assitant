@@ -1,38 +1,31 @@
-import React from "react";
 import { AuthProvider, useAuth } from "./context/AuthContext";
-import { CSS } from "./styles/appStyles";
-import { AUTH_CSS } from "./styles/authStyles";
+import { ThemeProvider } from "./context/ThemeContext";
+import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import AuthPage from "./components/auth/AuthPage";
 import App from "./App";
+import EDA from "./pages/EDA/EDA";
 
-function AppGate() {
+function RootContent() {
   const { user, loading } = useAuth();
 
-  if (loading) {
-    return (
-      <>
-        <style>{CSS}{AUTH_CSS}</style>
-        <div className="auth-loading">Loading…</div>
-      </>
-    );
-  }
+  if (loading) return <div className="loading-screen">Loading...</div>;
 
-  if (!user) {
-    return (
-      <>
-        <style>{CSS}{AUTH_CSS}</style>
-        <AuthPage />
-      </>
-    );
-  }
-
-  return <App />;
+  return (
+    <Routes>
+      <Route path="/auth" element={!user ? <AuthPage /> : <Navigate to="/" />} />
+      <Route path="/*" element={user ? <App /> : <Navigate to="/auth" />} />
+    </Routes>
+  );
 }
 
 export default function RootApp() {
   return (
-    <AuthProvider>
-      <AppGate />
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <Router>
+          <RootContent />
+        </Router>
+      </AuthProvider>
+    </ThemeProvider>
   );
 }

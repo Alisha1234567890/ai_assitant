@@ -15,7 +15,7 @@ from core.database import chat_collection, db
 from models.schemas import AskRequest, SummaryRequest
 from services.rag_service import (
     get_or_create_chat_data, retrieve_context, call_groq, 
-    call_groq_chat, chunk_text, embed_model
+    call_groq_chat, chunk_text, get_embed_model
 )
 import graph_engine as ge
 
@@ -68,7 +68,8 @@ async def process_single_file(file: UploadFile, current_chat_id: str, chat_data:
 
     import numpy as np
     import faiss
-    new_emb = np.array(embed_model.encode(chunks)).astype("float32")
+    import anyio
+    new_emb = await anyio.to_thread.run_sync(lambda: np.array(get_embed_model().encode(chunks)).astype("float32"))
 
     if chat_data["index"] is None:
         chat_data["index"] = faiss.IndexFlatL2(new_emb.shape[1])
@@ -197,17 +198,17 @@ async def ask(request: Request, req: AskRequest):
         ]
 
         if req.mode == "chat":
-            answer = call_groq_chat(req.question, history, custom_system=req.systemPrompt)
+            answer = await call_groq_chat(req.question, history, custom_system=req.systemPrompt)
         else:
             chat_data = await get_or_create_chat_data(request.app.state, req.chatId)
             if not chat_data or not chat_data["documents"]:
                 answer = "⚠️ No document uploaded yet. Please upload a PDF first, or switch to Chat mode."
             else:
-                context = retrieve_context(request.app.state, req.question, req.chatId)
+                context = await retrieve_context_async(request.app.state, req.question, req.chatId)
                 if not context:
                     answer = "⚠️ No relevant content found. Try rephrasing your question."
                 else:
-                    answer = call_groq(context, req.question, history, custom_system=req.systemPrompt)
+                    answer = await call_groq(context, req.question, history, custom_system=req.systemPrompt)
 
         await chat_collection.update_one(
             {"_id": ObjectId(req.chatId)},
@@ -240,7 +241,7 @@ async def chat_summary(req: SummaryRequest):
         f"CONVERSATION:\n{history_text}"
     )
     
-    summary = call_groq_chat(prompt, [], "You are a professional report generator.")
+    summary = await call_groq_chat(prompt, [], "You are a professional report generator.")
     return {"summary": summary}
 
 @router.get("/chats/{userId}")

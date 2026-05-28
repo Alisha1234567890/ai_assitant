@@ -14,9 +14,9 @@ export default function ModeToggle({ mode, onChange }) {
       <button
         className={`mode-btn ${mode==="rag"?"mode-btn-active":""}`}
         onClick={()=>onChange("rag")}
-        title="Ask questions from your PDFs"
+        title="Ask questions from your documents"
       >
-        <IC.PDF /><span>PDF RAG</span>
+        <IC.File /><span>Document RAG</span>
       </button>
     </div>
   );

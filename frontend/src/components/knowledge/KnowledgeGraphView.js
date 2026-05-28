@@ -8,12 +8,14 @@ import {
   applyHubNodeSizes,
 } from "../../utils/knowledgeMapElements";
 import { IC } from "../../icons/Icons";
+import { useTheme } from "../../context/ThemeContext";
 
 registerCytoscapeExtensions();
 
 const D = "div";
 
 export default function KnowledgeGraphView({ graph, chatId, baseUrl, loading, initialFilter = "all" }) {
+  const { theme } = useTheme();
   const containerRef = useRef(null);
   const cyRef = useRef(null);
   const [searchTerm, setSearchTerm] = useState("");
@@ -62,6 +64,37 @@ export default function KnowledgeGraphView({ graph, chatId, baseUrl, loading, in
   }, [chatId, baseUrl, loading]);
 
   useEffect(() => {
+    if (!cyRef.current) return;
+    const cy = cyRef.current;
+    const isDark = theme === "dark";
+    
+    // Update graph styles based on theme
+    cy.style()
+      .selector("node")
+        .style({
+          "color": isDark ? "#f0f0f5" : "#0f172a",
+          "border-color": isDark ? "#4a4a6a" : "#94a3b8",
+        })
+      .selector("node.concept")
+        .style({
+          "background-color": isDark ? "#1c1c2b" : "#ffffff",
+        })
+      .selector("node.pdf-cluster")
+        .style({
+          "background-color": isDark ? "rgba(28, 28, 43, 0.5)" : "rgba(241, 245, 249, 0.5)",
+          "color": isDark ? "#b0b0cc" : "#64748b",
+        })
+      .selector("edge")
+        .style({
+          "line-color": isDark ? "#3f3f5f" : "#cbd5e1",
+          "target-arrow-color": isDark ? "#3f3f5f" : "#cbd5e1",
+          "text-background-color": isDark ? "#12121e" : "#ffffff",
+          "color": isDark ? "#70708a" : "#94a3b8",
+        })
+      .update();
+  }, [theme]);
+
+  useEffect(() => {
     if (!containerRef.current || !graph?.nodes) return;
 
     const elements = toCytoscapeElements(graph);
@@ -100,6 +133,7 @@ export default function KnowledgeGraphView({ graph, chatId, baseUrl, loading, in
 
       console.log("[GraphView] Initializing new Cytoscape instance...");
       try {
+        const isDark = theme === "dark";
         cyRef.current = cytoscape({
           container: container,
           elements,
@@ -109,6 +143,31 @@ export default function KnowledgeGraphView({ graph, chatId, baseUrl, loading, in
         });
 
         const cy = cyRef.current;
+        
+        // Initial theme application
+        cy.style()
+          .selector("node")
+            .style({
+              "color": isDark ? "#f0f0f5" : "#0f172a",
+              "border-color": isDark ? "#4a4a6a" : "#94a3b8",
+            })
+          .selector("node.concept")
+            .style({
+              "background-color": isDark ? "#1c1c2b" : "#ffffff",
+            })
+          .selector("node.pdf-cluster")
+            .style({
+              "background-color": isDark ? "rgba(28, 28, 43, 0.5)" : "rgba(241, 245, 249, 0.5)",
+              "color": isDark ? "#b0b0cc" : "#64748b",
+            })
+          .selector("edge")
+            .style({
+              "line-color": isDark ? "#3f3f5f" : "#cbd5e1",
+              "target-arrow-color": isDark ? "#3f3f5f" : "#cbd5e1",
+              "text-background-color": isDark ? "#12121e" : "#ffffff",
+              "color": isDark ? "#70708a" : "#94a3b8",
+            })
+          .update();
 
         cy.on("dragfree", "node", saveState);
         
