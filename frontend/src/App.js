@@ -2,13 +2,10 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import axios from "axios";
 import { BASE, DEFAULT_SYSTEM } from "./constants";
 import { useAuth } from "./context/AuthContext";
-import { AUTH_CSS } from "./styles/authStyles";
 import { typeText } from "./utils/typeText";
-import { CSS } from "./styles/appStyles";
-import { IC } from "./icons/Icons";
+import { IC, Dots } from "./icons/Icons";
 import { useTTS } from "./hooks/useTTS";
 import { useSTT } from "./hooks/useSTT";
-import Dots from "./components/common/Dots";
 import TTSControls from "./components/speech/TTSControls";
 import STTButton from "./components/speech/STTButton";
 import PromptModal from "./components/prompts/PromptModal";
@@ -34,8 +31,8 @@ export default function App() {
   const isEdaPage = location.pathname === "/eda";
   
   const { user, logout } = useAuth();
-  const userId = user.id;
-  const userInitial = (user.name || user.email || "?")[0].toUpperCase();
+  const userId = user?.id;
+  const userInitial = user ? (user.name || user.email || "?")[0].toUpperCase() : "?";
 
   const [chatList,     setChatList]     = useState([]);
   const [chatId,       setChatId]       = useState(null);
@@ -95,12 +92,22 @@ export default function App() {
     },
   });
 
-  useEffect(()=>{ fetchChats(); },[userId]);
-  useEffect(()=>{ bottomRef.current?.scrollIntoView({behavior:"smooth"}); },[messages]);
+  const fetchChats = useCallback(async () => {
+    try { 
+      const r = await axios.get(`${BASE}/chats/${userId}`); 
+      setChatList(r.data.chats || []); 
+    } catch (e) {
+      console.error("Error fetching chats:", e);
+    }
+  }, [userId]);
 
-  const fetchChats = async () => {
-    try { const r=await axios.get(`${BASE}/chats/${userId}`); setChatList(r.data.chats||[]); } catch{}
-  };
+  useEffect(() => { 
+    if (userId) fetchChats(); 
+  }, [userId, fetchChats]);
+
+  useEffect(() => { 
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" }); 
+  }, [messages]);
 
   const loadChat = useCallback(async(id)=>{
     setChatId(id);
@@ -434,8 +441,7 @@ export default function App() {
 
   return (
     <>
-      <style>{CSS}{AUTH_CSS}</style>
-      <div className={`shell ${theme}`}>
+      <div className="shell">
         {sidebar}
 
         <main className={`main ${showKnowledgeMap ? "main-split" : ""}`}>

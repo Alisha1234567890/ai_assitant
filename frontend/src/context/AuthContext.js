@@ -30,17 +30,32 @@ export function AuthProvider({ children }) {
       setLoading(false);
       return;
     }
+
+    // --- OPTIMIZATION: Optimistic Session Restoration ---
+    // We trust the local storage user data initially to allow instant app loading.
+    // The background check will verify the token and logout if it's invalid.
+    setUser(stored.user);
+    setToken(stored.token);
+    setLoading(false); 
+    
     axios.defaults.headers.common.Authorization = `Bearer ${stored.token}`;
+    
     axios
       .get(`${BASE}/auth/me`)
       .then((r) => {
-        applySession(stored.token, r.data.user);
+        // Silently update user data if it changed on server
+        if (JSON.stringify(r.data.user) !== JSON.stringify(stored.user)) {
+          setUser(r.data.user);
+          saveAuth(stored.token, r.data.user);
+        }
       })
-      .catch(() => {
-        logout();
-      })
-      .finally(() => setLoading(false));
-  }, [applySession, logout]);
+      .catch((err) => {
+        // Only logout if it's a 401/403 (Unauthorized)
+        if (err.response?.status === 401 || err.response?.status === 403) {
+          logout();
+        }
+      });
+  }, [logout]);
 
   const signup = async ({ email, password, name }) => {
     const r = await axios.post(`${BASE}/auth/signup`, { email, password, name });
@@ -49,7 +64,9 @@ export function AuthProvider({ children }) {
   };
 
   const login = async ({ email, password }) => {
+    console.log("[AUTH] Attempting login for:", email);
     const r = await axios.post(`${BASE}/auth/login`, { email, password });
+    console.log("[AUTH] Login response:", r.data);
     applySession(r.data.token, r.data.user);
     return r.data.user;
   };

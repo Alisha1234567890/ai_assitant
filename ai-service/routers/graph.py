@@ -10,7 +10,8 @@ from datetime import datetime
 from bson import ObjectId
 from core.database import chat_collection
 from models.schemas import KnowledgeMapRequest, GraphPositionsRequest, GraphBuildRequest
-from services.rag_service import get_embed_model, GROQ_API_URL, GROQ_MODEL, GROQ_FAST_MODEL, get_http_client, retrieve_context_async
+from core.groq import GROQ_MODEL, GROQ_FAST_MODEL, call_groq_efficient
+from services.rag_service import get_embed_model, retrieve_context_async
 import graph_engine as ge
 
 router = APIRouter(tags=["graph"])
@@ -200,10 +201,6 @@ def parse_knowledge_map_json(raw: str) -> dict | None:
     return {"nodes": nodes[:15], "edges": edges[:25], "centerId": center}
 
 async def call_groq_knowledge_map(question: str, answer: str | None, context: str | None = None) -> dict:
-    api_key = os.getenv("GROQ_API_KEY")
-    if not api_key:
-        return fallback_knowledge_map(question, answer)
-
     system_prompt = (
         "You build knowledge maps for semantic exploration. "
         "Return ONLY valid JSON (no markdown): "
@@ -218,34 +215,24 @@ async def call_groq_knowledge_map(question: str, answer: str | None, context: st
     if context:
         user_parts.append(f"DOCUMENT CONTEXT:\n{context[:1500]}")
 
-    payload = {
-        "model": GROQ_FAST_MODEL, # Use fast model for UI elements like knowledge maps
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": "\n\n".join(user_parts)},
-        ],
-        "max_tokens": 800,
-        "temperature": 0.3,
-        "top_p": 0.9,
-    }
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": "\n\n".join(user_parts)},
+    ]
 
-    try:
-        client = get_http_client()
-        resp = await client.post(
-            GROQ_API_URL,
-            json=payload,
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        )
-        data = resp.json()
-    except Exception as e:
-        print(f"[GRAPH] Groq call failed: {e}")
+    result = await call_groq_efficient(
+        messages=messages,
+        model=GROQ_FAST_MODEL,
+        temperature=0.3,
+        max_tokens=800,
+        response_format={"type": "json_object"}
+    )
+
+    if not result["success"]:
+        print(f"[GRAPH] Groq call failed: {result.get('details')}")
         return fallback_knowledge_map(question, answer)
 
-    if "choices" not in data:
-        return fallback_knowledge_map(question, answer)
-
-    raw = data["choices"][0]["message"]["content"]
-    parsed = parse_knowledge_map_json(raw)
+    parsed = parse_knowledge_map_json(result["content"])
     return parsed if parsed else fallback_knowledge_map(question, answer)
 
 def _find_saved_knowledge_map(chat_doc: dict, question: str) -> dict | None:
@@ -271,7 +258,7 @@ async def _save_knowledge_map_to_chat(chat_id: str, question: str, answer: str |
         "nodes": graph.get("nodes", []),
         "edges": graph.get("edges", []),
         "centerId": graph.get("centerId"),
-        "createdAt": datetime.utcnow(),
+        "createdAt": datetime.now(),
     }
     await chat_collection.update_one(
         {"_id": ObjectId(chat_id)},

@@ -60,7 +60,7 @@ async def save_quiz_score(req: QuizScoreSaveRequest):
             "score": req.score,
             "total": req.total,
             "answers": req.answers,
-            "createdAt": datetime.utcnow()
+            "createdAt": datetime.now()
         }
         await quiz_history_collection.insert_one(doc)
         return {"status": "saved", "id": str(doc.get("_id"))}

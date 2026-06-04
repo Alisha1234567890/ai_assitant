@@ -29,7 +29,7 @@ export const IC = {
   EyeOff: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="ic"><path strokeLinecap="round" strokeLinejoin="round" d="M13.878 15.526A3 3 0 0110 13.879M10 8.879A3 3 0 0113.879 10M19.336 19.336A9.965 9.965 0 0112 21c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.06M8.203 8.203A9.954 9.954 0 0112 5c4.478 0 8.268 2.943 9.542 7a10.025 10.025 0 01-4.132 5.411M1 1l22 22"/></svg>,
   Download: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="ic"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>,
   FileText: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="ic"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>,
-  Summary: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="ic"><path strokeLinecap="round" strokeLinejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1.01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>,
+  Summary: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="ic"><path strokeLinecap="round" strokeLinejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>,
   Quiz: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="ic"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>,
   Award: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="ic"><circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/></svg>,
   Brain: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="ic"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 4.44-2.54zM14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-4.44-2.54z"/></svg>,
@@ -41,4 +41,19 @@ export const IC = {
   Activity: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="ic"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>,
   Table: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="ic"><path d="M3 3h18v18H3zM3 9h18M3 15h18M9 3v18M15 3v18"/></svg>,
 };
+
+export const Dots = () => (
+  <div className="dots-loader">
+    <span className="dot"></span>
+    <span className="dot"></span>
+    <span className="dot"></span>
+    <style>{`
+      .dots-loader { display: flex; gap: 4px; align-items: center; justify-content: center; height: 20px; }
+      .dot { width: 6px; height: 6px; background: currentColor; border-radius: 50%; opacity: 0.6; animation: dotPulse 1.4s infinite ease-in-out both; }
+      .dot:nth-child(1) { animation-delay: -0.32s; }
+      .dot:nth-child(2) { animation-delay: -0.16s; }
+      @keyframes dotPulse { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
+    `}</style>
+  </div>
+);
 

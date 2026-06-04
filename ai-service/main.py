@@ -25,10 +25,23 @@ app.add_middleware(
 # ---------- GLOBAL STATE ----------
 app.state.chat_data = {}
 
+# Set environment variables to speed up model loading and suppress warnings
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+
 # ---------- DATABASE INIT ----------
 @app.on_event("startup")
 async def startup_event():
+    # 1. Init Database
     await init_db()
+    
+    # 2. Pre-load ML Model
+    # We load it during startup so that the very first upload is instant.
+    import asyncio
+    from services.rag_service import get_embed_model
+    print("[STARTUP] Pre-loading embedding model in background...")
+    # asyncio.to_thread is the correct way to run sync functions in a thread
+    asyncio.create_task(asyncio.to_thread(get_embed_model))
 
 @app.on_event("shutdown")
 async def shutdown_event():
