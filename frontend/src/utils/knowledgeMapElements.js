@@ -1,16 +1,27 @@
 /** Knowledge Map — Premium Light Theme with Compound Nodes */
 
-const TOPIC_COLOR = "#1d4ed8"; // Deeper Blue for better contrast
-const CONCEPT_COLOR = "#ffffff"; // White background
-const BORDER_COLOR = "#94a3b8"; // Darker border for visibility
-const TEXT_COLOR = "#0f172a"; // Darker text
-const PDF_CLUSTER_BG = "rgba(241, 245, 249, 0.5)";
+const VIBRANT_COLORS = [
+  "#FF6B35", // Bright Orange
+  "#8B5CF6", // Vibrant Purple
+  "#3B82F6", // Bright Blue
+  "#EC4899", // Hot Pink
+  "#10B981", // Teal Green
+  "#F59E0B", // Amber Orange
+  "#06B6D4", // Cyan
+  "#EF4444", // Bright Red
+  "#84CC16", // Lime Green
+];
+const TOPIC_COLOR = "#FF5722"; // Bold Orange
+const BORDER_COLOR = "#000000"; // Black for high contrast
+const TEXT_COLOR = "#FFFFFF"; // White text
+const PDF_CLUSTER_BG = "rgba(255, 240, 230, 0.8)"; // Light Orange Cluster
 
 
 export function nodeDisplayColor(node, index = 0) {
   if (node.type === "topic") return TOPIC_COLOR;
   if (node.type === "pdf_cluster") return PDF_CLUSTER_BG;
-  return CONCEPT_COLOR;
+  if (node.color) return node.color; // Use backend color if available
+  return VIBRANT_COLORS[index % VIBRANT_COLORS.length];
 }
 
 /** Organized semantic graph — supports PDF clusters (compound nodes) */
@@ -25,7 +36,7 @@ export function toCytoscapeElements(graph) {
   const nodes = graph.nodes.map((n, i) => {
     const color = colorById[n.id];
     const isCluster = n.type === "pdf_cluster";
-    
+
     const el = {
       data: {
         id: n.id,
@@ -36,6 +47,7 @@ export function toCytoscapeElements(graph) {
         color,
         parent: n.parent || undefined,
         sourcePage: n.sourcePage || 0,
+        chunkText: n.chunkText || "",
       },
       classes: n.type === "topic" ? "topic" : isCluster ? "pdf-cluster" : "concept",
     };
@@ -86,11 +98,11 @@ export const FCOS_LAYOUT = {
   animationDuration: 1000,
   fit: true,
   padding: 60,
-  randomize: true, 
-  nodeRepulsion: 15000, 
+  randomize: true,
+  nodeRepulsion: 15000,
   idealEdgeLength: 160,
   edgeElasticity: 0.45,
-  gravity: 0.15, 
+  gravity: 0.15,
   gravityRange: 3.8,
   nestingFactor: 0.1,
   tile: true,
@@ -125,7 +137,7 @@ export function layoutForGraph(graph) {
       typeof n.position?.x === "number" &&
       typeof n.position?.y === "number"
   );
-  
+
   const hasSaved = Boolean(graph?.layoutComputed) || (graph?.hasPositions && positioned.length > 0);
 
   // If we have a very small number of nodes and no connections, grid is safer
@@ -143,14 +155,14 @@ export function applyHubNodeSizes(cy) {
   cy.nodes(":childless").forEach((n) => {
     maxDeg = Math.max(maxDeg, n.degree(false));
   });
-  
+
   cy.nodes(":childless").forEach((node) => {
     const deg = node.degree(false);
     const isTopic = node.hasClass("topic");
     const size = isTopic
       ? Math.round(85 + (deg / maxDeg) * 15)
       : Math.round(60 + (deg / maxDeg) * 20);
-    
+
     node.style("width", size);
     node.style("height", size);
     node.style("font-size", isTopic ? 12 : 10);
@@ -167,29 +179,32 @@ export const GRAPH_STYLESHEET = [
       "text-valign": "center",
       "text-halign": "center",
       "font-family": "Inter, system-ui, sans-serif",
-      "font-weight": 600,
-      color: TEXT_COLOR,
+      "font-weight": 700,
+      color: "#000000", // All node text is black now
       "text-wrap": "wrap",
-      "text-max-width": 80,
-      width: 60,
-      height: 60,
+      "text-max-width": 100,
+      width: 70,
+      height: 70,
       "background-color": "data(color)",
-      "border-width": 2,
+      "border-width": 3,
       "border-color": BORDER_COLOR,
       "overlay-opacity": 0,
       "transition-property": "background-color, border-color, border-width, width, height",
       "transition-duration": "0.3s",
-      "box-shadow": "0 4px 6px -1px rgb(0 0 0 / 0.1)",
+      "box-shadow": "0 8px 12px -2px rgb(0 0 0 / 0.25)",
     },
   },
   {
     selector: "node.topic",
     style: {
       "background-color": TOPIC_COLOR,
-      color: "#ffffff",
-      "border-color": "#1d4ed8",
-      "font-weight": 700,
+      color: "#000000", // Topic node text is black too
+      "border-color": "#000000",
+      "border-width": 4,
+      "font-weight": 800,
       "z-index": 10,
+      width: 85,
+      height: 85,
     },
   },
   {
@@ -197,33 +212,51 @@ export const GRAPH_STYLESHEET = [
     style: {
       shape: "round-rectangle",
       "background-color": PDF_CLUSTER_BG,
-      "background-opacity": 0.4,
-      "border-width": 1.5,
-      "border-color": "#cbd5e1",
-      "border-style": "dashed",
+      "background-opacity": 0.7,
+      "border-width": 2.5,
+      "border-color": "#FF8A65",
+      "border-style": "solid",
       label: "data(label)",
       "text-valign": "top",
       "text-halign": "center",
-      "text-margin-y": -15,
-      "font-size": 14,
-      "font-weight": 700,
-      color: "#64748b",
-      "padding": 40,
+      "text-margin-y": -18,
+      "font-size": 15,
+      "font-weight": 800,
+      color: "#374151",
+      "padding": 50,
     },
   },
   {
     selector: "node:selected",
     style: {
-      "border-width": 4,
-      "border-color": TOPIC_COLOR,
+      "border-width": 5,
+      "border-color": "#FFD700",
     },
   },
   {
     selector: "node.highlight",
     style: {
-      "border-width": 4,
-      "border-color": TOPIC_COLOR,
+      "border-width": 5,
+      "border-color": "#FFD700",
       "z-index": 99,
+    },
+  },
+  {
+    selector: "node.search-highlight",
+    style: {
+      "border-width": 6,
+      "border-color": "#FFD700",
+      "z-index": 100,
+    },
+  },
+  {
+    selector: "edge.search-highlight",
+    style: {
+      "line-color": "#FFD700",
+      "target-arrow-color": "#FFD700",
+      width: 4,
+      opacity: 1,
+      "z-index": 100,
     },
   },
   {
@@ -241,31 +274,31 @@ export const GRAPH_STYLESHEET = [
   {
     selector: "edge",
     style: {
-      width: 1.5,
+      width: 2.5,
       "curve-style": "bezier",
-      "line-color": "#cbd5e1",
-      "target-arrow-color": "#cbd5e1",
+      "line-color": "#000000",
+      "target-arrow-color": "#000000",
       "target-arrow-shape": "triangle",
-      "arrow-scale": 0.8,
+      "arrow-scale": 1.2,
       label: "data(label)",
-      "font-size": 9,
+      "font-size": 10,
       "font-family": "Inter, system-ui, sans-serif",
-      "font-weight": 500,
-      color: "#94a3b8",
+      "font-weight": 600,
+      color: "#000000",
       "text-rotation": "autorotate",
       "text-margin-y": -10,
       "text-background-opacity": 1,
-      "text-background-color": "#ffffff",
-      "text-background-padding": 2,
+      "text-background-color": "#F9FAFB",
+      "text-background-padding": 3,
       "text-background-shape": "round-rectangle",
-      "opacity": 0.6,
+      "opacity": 0.9,
     },
   },
   {
     selector: "edge.intra-edge",
     style: {
-      "line-color": "#94a3b8",
-      "target-arrow-color": "#94a3b8",
+      "line-color": "#000000",
+      "target-arrow-color": "#000000",
     },
   },
   {
@@ -274,8 +307,8 @@ export const GRAPH_STYLESHEET = [
       "line-style": "dashed",
       "line-color": TOPIC_COLOR,
       "target-arrow-color": TOPIC_COLOR,
-      "width": 2,
-      "opacity": 0.8,
+      "width": 3,
+      "opacity": 1,
     },
   },
   {
@@ -287,7 +320,7 @@ export const GRAPH_STYLESHEET = [
   {
     selector: "edge.highlight",
     style: {
-      width: 3,
+      width: 4,
       opacity: 1,
       "line-color": TOPIC_COLOR,
       "target-arrow-color": TOPIC_COLOR,

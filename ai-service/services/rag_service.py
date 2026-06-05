@@ -29,7 +29,7 @@ def get_embed_model():
     return _model_cache["embed"]
 
 
-def chunk_text(text: str, chunk_size: int = 300, overlap: int = 50) -> list:
+def chunk_text(text: str, chunk_size: int = 180, overlap: int = 25) -> list:
     words = text.split()
     print(f"[CHUNK] {len(words)} words total")
     chunks, i = [], 0
@@ -93,7 +93,7 @@ async def get_or_create_chat_data(app_state, chatId: str):
     print(f"[MEM] FAISS ready: {index.ntotal} vectors")
     return app_state.chat_data[chatId]
 
-async def retrieve_context_async(app_state, question: str, chatId: str, k: int = 6) -> str:
+async def retrieve_context_async(app_state, question: str, chatId: str, k: int = 2) -> str:
     if chatId not in app_state.chat_data:
         return ""
     data = app_state.chat_data[chatId]
@@ -107,15 +107,15 @@ async def retrieve_context_async(app_state, question: str, chatId: str, k: int =
     print(f"[RETRIEVE] distances={[round(float(d),2) for d in distances[0]]}")
 
     results = [
-        data["documents"][idx]
+        data["documents"][idx][:220]
         for idx in indices[0]
         if idx != -1 and idx < len(data["documents"])
     ]
     print(f"[RETRIEVE] {len(results)} chunks returned")
-    return "\n\n---\n\n".join(results)
+    return "\n---\n".join(results)
 
 # For backward compatibility
-def retrieve_context(app_state, question: str, chatId: str, k: int = 6) -> str:
+def retrieve_context(app_state, question: str, chatId: str, k: int = 2) -> str:
     import asyncio
     import numpy as np
     try:
@@ -133,35 +133,26 @@ def retrieve_context(app_state, question: str, chatId: str, k: int = 6) -> str:
     data = app_state.chat_data.get(chatId, {})
     if not data or data.get("index") is None: return ""
     distances, indices = data["index"].search(query, k)
-    results = [data["documents"][idx] for idx in indices[0] if idx != -1 and idx < len(data["documents"])]
-    return "\n\n---\n\n".join(results)
+    results = [data["documents"][idx][:220] for idx in indices[0] if idx != -1 and idx < len(data["documents"])]
+    return "\n---\n".join(results)
 
 async def call_groq(context: str, question: str, history: list, custom_system: str = None, model: str = GROQ_MODEL) -> str:
-    default_system = (
-        "You are a helpful AI assistant that answers questions strictly based on document context.\n"
-        "Rules:\n"
-        "1. Only use information from the CONTEXT block.\n"
-        "2. If the answer is not in the context, say 'Not found in the document'.\n"
-        "3. Be concise. Use bullet points when listing multiple items.\n"
-        "4. Never make up information.\n"
-        "5. If multiple documents are provided, synthesize information across all of them."
-    )
-    system_prompt = custom_system.strip() if custom_system and custom_system.strip() else default_system
+    system_prompt = "Answer from document. If not found, say so. Be brief."
 
-    recent = history[-6:] if len(history) > 6 else history
-    history_msgs = [{"role": m["role"], "content": m["content"]} for m in recent]
+    recent = history[-2:] if len(history) > 2 else history
+    history_msgs = [{"role": m["role"], "content": m["content"][:400]} for m in recent]
 
     messages = (
         [{"role": "system", "content": system_prompt}]
         + history_msgs
-        + [{"role": "user", "content": f"CONTEXT:\n{context}\n\nQUESTION:\n{question}"}]
+        + [{"role": "user", "content": f"DOC:\n{context}\n\nQ:\n{question}"}]
     )
 
     result = await call_groq_efficient(
         messages=messages,
         model=model,
-        temperature=0.2,
-        max_tokens=1024
+        temperature=0.1,
+        max_tokens=512
     )
     
     if result["success"]:

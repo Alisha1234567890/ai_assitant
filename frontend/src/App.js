@@ -76,18 +76,10 @@ export default function App() {
     sttLang,
     onInterim: (text) => {
       setInterimText(text);
-      setQuestion(prev => {
-        const base = prev.replace(/\[listening….*?\]$/, "").trimEnd();
-        return base ? base + " " + text : text;
-      });
     },
     onResult: (text) => {
       setInterimText("");
-      setQuestion(prev => {
-        const base = prev.replace(/\[listening….*?\]$/, "").trimEnd();
-        const combined = base ? base + " " + text : text;
-        return combined;
-      });
+      setQuestion(text); // Replace the question completely to avoid repetition!
       inputRef.current?.focus();
     },
   });

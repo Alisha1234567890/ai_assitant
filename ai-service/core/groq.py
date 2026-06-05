@@ -13,6 +13,7 @@ GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 GROQ_FAST_MODEL = os.getenv("GROQ_FAST_MODEL", "llama-3.1-8b-instant")
 
 _http_client = None
+_api_cache = {}  # Cache for repeated API calls
 
 def get_http_client():
     global _http_client
@@ -50,6 +51,15 @@ async def call_groq_efficient(
     response_format: Optional[Dict[str, str]] = None,
     retries: int = 1
 ) -> Dict[str, Any]:
+    # Cache key based on messages, model, temp, max_tokens
+    import hashlib
+    cache_key = hashlib.md5(
+        f"{json.dumps(messages, sort_keys=True)}|{model}|{temperature}|{max_tokens}".encode()
+    ).hexdigest()
+    
+    if cache_key in _api_cache:
+        print("[CACHE] Returning cached response")
+        return _api_cache[cache_key]
     """
     Centralized efficient Groq caller with token management and retry logic.
     """
@@ -91,12 +101,15 @@ async def call_groq_efficient(
 
             if resp.status_code == 200:
                 content = data["choices"][0]["message"]["content"]
-                return {
+                result = {
                     "success": True, 
                     "content": content, 
                     "model": selected_model,
                     "usage": data.get("usage", {})
                 }
+                # Store in cache!
+                _api_cache[cache_key] = result
+                return result
             
             error_info = data.get("error", {})
             error_msg = error_info.get("message", "Unknown error")
