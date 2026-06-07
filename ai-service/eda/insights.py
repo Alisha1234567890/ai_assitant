@@ -6,58 +6,98 @@ from core.groq import GROQ_FAST_MODEL, call_groq_efficient
 
 async def generate_ai_insights(df: pd.DataFrame) -> Dict[str, Any]:
     """
-    Generates AI-driven insights from the dataset using Ollama (NO Groq tokens!).
+    Generates AI-driven insights from the dataset with minimal Groq usage!
+    First we calculate local stats, then send a tiny summary to Groq!
     """
-    # 1. Prepare data summary for the AI
-    # We provide statistical summary instead of raw data to fit context limits
-    # Optimization: limit numeric summary and head to avoid token bloat
-    numeric_df = df.select_dtypes(include=['number'])
-    numeric_summary = numeric_df.describe().round(2).to_dict() if not numeric_df.empty else "No numeric data"
+    # --- 100% LOCAL: Calculate everything we can locally first ---
+    numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+    missing = df.isnull().sum().to_dict()
+    missing_cols = [k for k, v in missing.items() if v > 0]
+    duplicates = int(df.duplicated().sum())
     
-    summary = {
-        "columns": df.columns.tolist()[:20], # Limit column count more
-        "shape": df.shape,
-        "types": {str(k): str(v) for k, v in df.dtypes.items()},
-        "missing_values": df.isnull().sum().to_dict(),
-        "numeric_summary": numeric_summary,
-        "sample_head": df.head(2).where(pd.notnull(df), None).to_dict(orient="records")
-    }
-
+    trends = []
+    correlations = []
+    recommendations = []
+    
+    # Add local trends (simple observations)
+    trends.append(f"The dataset contains {len(df)} rows and {len(df.columns)} columns.")
+    
+    if numeric_cols:
+        for col in numeric_cols[:3]:
+            mean_val = round(df[col].mean(), 2)
+            std_val = round(df[col].std(), 2)
+            trends.append(f"{col}: Average {mean_val}, Standard Deviation {std_val}")
+    
+    # Calculate correlations locally
+    if len(numeric_cols) >= 2:
+        corr_matrix = df[numeric_cols].corr()
+        for i in range(len(numeric_cols)):
+            for j in range(i+1, len(numeric_cols)):
+                corr_val = round(corr_matrix.iloc[i,j], 2)
+                if abs(corr_val) > 0.5:
+                    correlations.append(f"{numeric_cols[i]} and {numeric_cols[j]}: Correlation of {corr_val}")
+    
+    # Local recommendations
+    if missing_cols:
+        recommendations.append(f"Consider handling missing values in columns: {', '.join(missing_cols)}")
+    if duplicates > 0:
+        recommendations.append(f"Remove {duplicates} duplicate rows")
+    if len(numeric_cols) > 5:
+        recommendations.append("Consider feature selection to reduce dimensionality")
+    
+    # Now only send a tiny summary to Groq for polishing if needed
     prompt = f"""
-    Analyze dataset. JSON only.
+    Improve these dataset insights (short, 1-2 sentences each). Keep JSON format only.
+    {json.dumps({
+        "trends": trends,
+        "correlations": correlations,
+        "missing_value_warnings": [f"{k}: {v} missing" for k,v in missing.items() if v >0],
+        "recommendations": recommendations
+    })}
     
-    DATA:
-    {json.dumps(summary)}
-    
-    JSON OUTPUT:
+    Output JSON exactly like:
     {{
         "trends": [],
         "correlations": [],
-        "outliers": [],
         "missing_value_warnings": [],
         "recommendations": []
     }}
     """
 
     messages = [
-        {"role": "system", "content": "Data analyst. JSON only."},
+        {"role": "system", "content": "Brief data insights JSON only."},
         {"role": "user", "content": prompt}
     ]
 
-    result = await call_groq_efficient(
-        messages=messages,
-        model=GROQ_FAST_MODEL,
-        temperature=0.1,
-        max_tokens=600
-    )
+    try:
+        result = await call_groq_efficient(
+            messages=messages,
+            model=GROQ_FAST_MODEL,
+            temperature=0.2,
+            max_tokens=400  # Very small token budget!
+        )
 
-    if result["success"]:
-        try:
-            return json.loads(result["content"])
-        except Exception as e:
-            print(f"[EDA-AI] JSON Parse Error: {e}")
-            
+        if result["success"]:
+            try:
+                groq_insights = json.loads(result["content"])
+                # Use Groq polished insights if valid, else our local ones
+                return {
+                    "trends": groq_insights.get("trends", trends),
+                    "correlations": groq_insights.get("correlations", correlations),
+                    "missing_value_warnings": groq_insights.get("missing_value_warnings", [f"{k}: {v} missing" for k,v in missing.items() if v >0]),
+                    "recommendations": groq_insights.get("recommendations", recommendations),
+                    "outliers": []
+                }
+            except Exception as e:
+                print(f"[EDA-AI] JSON Parse Error: {e}")
+    except Exception as e:
+        print(f"[EDA-AI] Error: {e}")
+    
+    # --- FALLBACK: Return our local 100% free insights if Groq fails ---
     return {
-        "error": result.get("details", "Failed to generate AI insights"),
-        "trends": [], "correlations": [], "outliers": [], "missing_value_warnings": [], "recommendations": []
+        "trends": trends,
+        "correlations": correlations,
+        "missing_value_warnings": [f"{k}: {v} missing" for k,v in missing.items() if v >0],
+        "recommendations": recommendations,
+        "outliers": []
     }

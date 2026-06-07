@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { IC } from '../../icons/Icons';
 
 export default function AIInsights({ sessionId }) {
@@ -6,42 +6,105 @@ export default function AIInsights({ sessionId }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  useEffect(() => {
+  const generateInsights = async () => {
     if (!sessionId) return;
 
-    const fetchInsights = async () => {
-      setLoading(true);
-      try {
-        const res = await fetch(`http://localhost:8000/eda/insights/${sessionId}`, {
-          method: 'POST',
-        });
-        if (!res.ok) throw new Error('Failed to load AI insights');
-        const data = await res.json();
-        setInsights(data.insights);
-      } catch (err) {
-        setError(err.message);
-      } finally {
-        setLoading(false);
-      }
-    };
+    setLoading(true);
+    setError(null);
 
-    fetchInsights();
-  }, [sessionId]);
+    try {
+      const res = await fetch(`http://localhost:8000/eda/insights/${sessionId}`, {
+        method: 'POST',
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(errText || 'Failed to load AI insights');
+      }
+      const data = await res.json();
+      setInsights(data.insights);
+    } catch (err) {
+      console.error('AI Insights error:', err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // If we have an error, show the generate button with retry option
+  if (error) {
+    return (
+      <div className="mb-10">
+        <div className="flex items-center gap-4 mb-6">
+          <div className="w-12 h-12 rounded-2xl bg-grad flex items-center justify-center text-white shadow-lg">
+            <IC.Bot size={24} />
+          </div>
+          <div>
+            <h3 className="text-xl font-bold leading-none" style={{ color: 'var(--text)' }}>AI Smart Insights</h3>
+            <p className="text-xs mt-1 font-semibold opacity-60 uppercase tracking-wider" style={{ color: 'var(--text-md)' }}>Optional: Powered by Groq</p>
+          </div>
+        </div>
+
+        <div className="text-center py-12 rounded-3xl" style={{ background: 'rgba(239,68,68,0.05)', border: '1.5px solid rgba(239,68,68,0.1)' }}>
+          <p className="text-sm font-semibold mb-4" style={{ color: '#ef4444' }}>
+            {error}
+          </p>
+          <button
+            onClick={generateInsights}
+            className="flex items-center gap-3 px-6 py-3 font-bold rounded-xl transition-all mx-auto"
+            style={{
+              background: 'var(--grad)',
+              color: 'white',
+              boxShadow: '0 8px 24px rgba(240,101,0,0.25)',
+            }}
+          >
+            <IC.Bot size={20} />
+            Retry Generate AI Insights
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (loading) return (
-    <div className="flex flex-col items-center justify-center py-12 gap-4 rounded-3xl" style={{ background: 'var(--grad-soft)', border: '1.5px dashed var(--border-gold)' }}>
+    <div className="mb-10 flex flex-col items-center justify-center py-12 gap-4 rounded-3xl" style={{ background: 'var(--grad-soft)', border: '1.5px dashed var(--border-gold)' }}>
       <div className="w-10 h-10 border-4 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
       <p className="text-[13px] font-bold uppercase tracking-widest" style={{ color: 'var(--orange)' }}>AI Analysis in progress...</p>
     </div>
   );
 
-  if (error) return (
-    <div className="p-4 rounded-xl text-red-500 text-center text-sm font-bold uppercase tracking-wide" style={{ background: 'rgba(220,50,50,0.05)', border: '1.5px solid rgba(220,50,50,0.1)' }}>
-      {error}
-    </div>
-  );
+  if (!insights) {
+    return (
+      <div className="mb-10">
+        <div className="flex items-center gap-4 mb-6">
+          <div className="w-12 h-12 rounded-2xl bg-grad flex items-center justify-center text-white shadow-lg">
+            <IC.Bot size={24} />
+          </div>
+          <div>
+            <h3 className="text-xl font-bold leading-none" style={{ color: 'var(--text)' }}>AI Smart Insights</h3>
+            <p className="text-xs mt-1 font-semibold opacity-60 uppercase tracking-wider" style={{ color: 'var(--text-md)' }}>Optional: Powered by Groq</p>
+          </div>
+        </div>
 
-  if (!insights) return null;
+        <div className="text-center py-12 rounded-3xl" style={{ background: 'var(--grad-soft)', border: '1.5px dashed var(--border-gold)' }}>
+          <p className="text-sm font-semibold mb-4" style={{ color: 'var(--text-md)' }}>
+            Get AI-powered insights for your dataset!
+          </p>
+          <button
+            onClick={generateInsights}
+            className="flex items-center gap-3 px-6 py-3 font-bold rounded-xl transition-all mx-auto"
+            style={{
+              background: 'var(--grad)',
+              color: 'white',
+              boxShadow: '0 8px 24px rgba(240,101,0,0.25)',
+            }}
+          >
+            <IC.Bot size={20} />
+            Generate AI Insights
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const sections = [
     { title: 'Observed Trends', data: insights.trends, icon: <IC.Activity size={18} />, color: 'var(--orange)', bg: 'rgba(240,101,0,0.08)' },
@@ -65,7 +128,7 @@ export default function AIInsights({ sessionId }) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {sections.map((section, i) => (
           section.data && section.data.length > 0 && (
-            <div key={i} 
+            <div key={i}
               style={{ background: 'var(--white)', border: '1.5px solid var(--border-gold)', borderRadius: 'var(--radius)' }}
               className="p-6 shadow-sm hover:shadow-md transition-all"
             >
@@ -89,7 +152,7 @@ export default function AIInsights({ sessionId }) {
                     // Handle string items
                     content = String(item);
                   }
-                  
+
                   return (
                     <li key={j} className="flex gap-3 text-[13.5px] leading-relaxed" style={{ color: 'var(--text-md)' }}>
                       <span className="w-1.5 h-1.5 rounded-full mt-2 flex-shrink-0" style={{ background: section.color, opacity: 0.4 }}></span>
