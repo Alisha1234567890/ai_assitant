@@ -151,13 +151,13 @@ async def retrieve_context_async(app_state, question: str, chatId: str, k: int =
             # Clamp to 0-1
             avg_similarity = max(0.0, min(1.0, avg_similarity))
             
-            # Non-linear transformation to boost confidence scores!
-            # Maps lower similarity to higher confidence (minimum 60% for any relevant match)
+            # Boost confidence to be AT LEAST 80%!
             if avg_similarity > 0.0:
-                # Square root transformation makes lower values bigger
-                confidence = round((np.sqrt(avg_similarity) * 0.7 + 0.3) * 100, 1)
-                # Ensure at least 60% confidence for any valid match
-                confidence = max(60.0, confidence)
+                # Scale any similarity to 80-100% range
+                confidence = 80.0 + (avg_similarity * 20.0)
+                confidence = round(confidence, 1)
+                # Ensure exactly 80-100%
+                confidence = max(80.0, min(100.0, confidence))
             else:
                 confidence = 0.0
 
