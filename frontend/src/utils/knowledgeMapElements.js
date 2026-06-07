@@ -161,12 +161,12 @@ export function applyHubNodeSizes(cy) {
     const isTopic = node.hasClass("topic");
     const size = isTopic
       ? Math.round(85 + (deg / maxDeg) * 15)
-      : Math.round(60 + (deg / maxDeg) * 20);
+      : Math.round(70 + (deg / maxDeg) * 20);
 
     node.style("width", size);
     node.style("height", size);
-    node.style("font-size", isTopic ? 12 : 10);
-    node.style("text-max-width", size * 1.2);
+    node.style("font-size", isTopic ? 13 : 12);
+    node.style("text-max-width", size * 1.1);
   });
 }
 
@@ -179,7 +179,8 @@ export const GRAPH_STYLESHEET = [
       "text-valign": "center",
       "text-halign": "center",
       "font-family": "Inter, system-ui, sans-serif",
-      "font-weight": 700,
+      "font-weight": 600,
+      "font-size": 12,
       color: "#000000", // All node text is black now
       "text-wrap": "wrap",
       "text-max-width": 100,
@@ -202,6 +203,7 @@ export const GRAPH_STYLESHEET = [
       "border-color": "#000000",
       "border-width": 4,
       "font-weight": 800,
+      "font-size": 13,
       "z-index": 10,
       width: 85,
       height: 85,

@@ -27,6 +27,25 @@ if not os.path.exists(UPLOAD_DIR):
 def calculate_file_hash(file_content: bytes) -> str:
     return hashlib.sha256(file_content).hexdigest()
 
+def clean_pdf_text_for_readability(text: str) -> str:
+    """Cleans PDF text to make it highly readable in the node modal."""
+    import re
+    
+    # Replace various bullet point characters with newlines for readability
+    # Handles: , •, -, *, ▪, ▫, etc.
+    cleaned = re.sub(r"(\n|^)\s*[•\-*▪▫]\s*", "\n", text)
+    
+    # Replace multiple spaces with single space
+    cleaned = re.sub(r"[ \t]+", " ", cleaned)
+    
+    # Ensure proper spacing between lines
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    
+    # Clean up any remaining weird characters
+    cleaned = cleaned.replace("\x0c", "")  # Form feed character
+    
+    return cleaned.strip()
+
 async def extract_text_from_file(file_content: bytes, filename: str, ext: str) -> Tuple[str, int, str]:
     """Extracts text and page count from file content."""
     from pypdf import PdfReader
@@ -41,13 +60,17 @@ async def extract_text_from_file(file_content: bytes, filename: str, ext: str) -
         try:
             reader = PdfReader(io.BytesIO(file_content))
             page_count = len(reader.pages)
-            # Optimization: Join pages with space once at the end
+            # Keep ALL line breaks and page structure for maximum readability
             text_parts = []
             for page in reader.pages:
                 extracted = page.extract_text()
                 if extracted:
-                    text_parts.append(extracted)
-            text = " ".join(text_parts)
+                    # Clean and format text for readability
+                    cleaned_text = clean_pdf_text_for_readability(extracted)
+                    # Add page separator for clarity
+                    text_parts.append(f"\n--- Page {len(text_parts) + 1} ---\n\n{cleaned_text}")
+            # Preserve original line breaks exactly
+            text = "".join(text_parts)
         except Exception as e:
             raise ValueError(f"PDF extraction failed: {str(e)}")
             
@@ -210,8 +233,11 @@ async def upload_files(
                     lambda: np.array(get_embed_model().encode(all_new_chunks, show_progress_bar=False)).astype("float32")
                 )
                 
+                # Normalize vectors for cosine similarity!
+                faiss.normalize_L2(new_embs)
+                
                 if chat_data["index"] is None:
-                    chat_data["index"] = faiss.IndexFlatL2(new_embs.shape[1])
+                    chat_data["index"] = faiss.IndexFlatIP(new_embs.shape[1])
                 chat_data["index"].add(new_embs)
                 
                 chat_data["documents"].extend(all_new_chunks)
@@ -326,6 +352,7 @@ async def ask(request: Request, req: AskRequest):
             for m in raw_msgs
         ]
 
+        confidence = 0.0
         if req.mode == "chat":
             answer = await call_groq_chat(req.question, history, custom_system=req.systemPrompt)
         else:
@@ -333,23 +360,29 @@ async def ask(request: Request, req: AskRequest):
             if not chat_data or not chat_data["documents"]:
                 answer = "⚠️ No document uploaded yet. Please upload a PDF first, or switch to Chat mode."
             else:
-                context = await retrieve_context_async(request.app.state, req.question, req.chatId)
+                context, confidence = await retrieve_context_async(request.app.state, req.question, req.chatId)
                 if not context:
                     answer = "⚠️ No relevant content found. Try rephrasing your question."
                 else:
                     answer = await call_groq(context, req.question, history, custom_system=req.systemPrompt)
 
+        # Store messages with confidence (only for document mode)
+        user_msg = {"role": "user", "text": req.question}
+        bot_msg = {"role": "bot", "text": answer}
+        if req.mode != "chat":
+            bot_msg["confidence"] = confidence
+        
         await chat_collection.update_one(
             {"_id": ObjectId(req.chatId)},
             {"$push": {"messages": {"$each": [
-                {"role": "user", "text": req.question},
-                {"role": "bot", "text": answer},
+                user_msg,
+                bot_msg,
             ]}}},
         )
-        return {"answer": answer, "chatId": req.chatId}
+        return {"answer": answer, "chatId": req.chatId, "confidence": confidence if req.mode != "chat" else 0.0}
     except Exception as e:
         traceback.print_exc()
-        return {"answer": f"❌ Backend error: {str(e)}", "chatId": req.chatId}
+        return {"answer": f"❌ Backend error: {str(e)}", "chatId": req.chatId, "confidence": 0.0}
 
 @router.post("/chat/summary")
 async def chat_summary(req: SummaryRequest):

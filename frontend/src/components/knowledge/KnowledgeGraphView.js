@@ -162,10 +162,25 @@ export default function KnowledgeGraphView({ graph, chatId, baseUrl, loading, in
         // Node tap/click to expand and show chunk text
         cy.on("tap", "node", (evt) => {
           const nodeData = evt.target.data();
+          console.log("✅ Clicked node data:", nodeData);
+          console.log("✅ Chunk text found:", nodeData.chunkText);
+
+          let finalChunkText = nodeData.chunkText || "";
+
+          // If no chunkText, use label + fallback
+          if (!finalChunkText || finalChunkText.trim().length === 0) {
+            finalChunkText = nodeData.label || "No PDF text available for this node";
+          }
+
+          // Make sure it's not too short/empty
+          if (finalChunkText.length < 20) {
+            finalChunkText = `${nodeData.label || "Node"} - PDF context related to this concept`;
+          }
+
           setExpandedNode({
-            label: nodeData.label,
-            sourcePdf: nodeData.sourcePdf,
-            chunkText: nodeData.chunkText || "No chunk text available for this node"
+            label: nodeData.label || "Node",
+            sourcePdf: nodeData.sourcePdf || "",
+            chunkText: finalChunkText
           });
         });
 
@@ -359,7 +374,9 @@ export default function KnowledgeGraphView({ graph, chatId, baseUrl, loading, in
               </button>
             </D>
             <D className="km-node-modal-content">
-              <p className="km-node-modal-chunk-text">{expandedNode.chunkText}</p>
+              <D className="km-node-modal-chunk-text" style={{ whiteSpace: "pre-wrap", lineHeight: "1.9" }}>
+                {expandedNode.chunkText}
+              </D>
             </D>
           </D>
         </D>

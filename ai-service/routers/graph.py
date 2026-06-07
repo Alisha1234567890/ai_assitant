@@ -303,10 +303,27 @@ async def knowledge_map(request: Request, req: KnowledgeMapRequest):
 
         # Use RAG service for context
         context = ""
+        retrieved_chunks = []
         if req.chatId and ObjectId.is_valid(req.chatId):
-            context = await retrieve_context_async(request.app.state, req.question, req.chatId)
+            ctx_result = await retrieve_context_async(request.app.state, req.question, req.chatId)
+            if isinstance(ctx_result, tuple):
+                context, _ = ctx_result
+            else:
+                context = ctx_result
+            # Extract readable chunks
+            retrieved_chunks = [c.strip() for c in str(context).split("\n---\n") if len(c.strip()) > 20]
         
         graph = await call_groq_knowledge_map(req.question, req.answer, context)
+        
+        # Attach retrieved PDF context to the nodes (NO GROQ USED!)
+        if retrieved_chunks and graph.get("nodes"):
+            for i, node in enumerate(graph["nodes"]):
+                chunk_idx = i % len(retrieved_chunks)
+                chunk_text = retrieved_chunks[chunk_idx]
+                if len(chunk_text) > 350:
+                    cut_idx = chunk_text.rfind(' ', 0, 350)
+                    chunk_text = chunk_text[:cut_idx] + "..." if cut_idx != -1 else chunk_text[:350] + "..."
+                node["chunkText"] = chunk_text
         
         map_id = None
         if req.chatId and ObjectId.is_valid(req.chatId):

@@ -29,25 +29,25 @@ export default function App() {
   const { theme, toggleTheme } = useTheme();
   const location = useLocation();
   const isEdaPage = location.pathname === "/eda";
-  
+
   const { user, logout } = useAuth();
   const userId = user?.id;
   const userInitial = user ? (user.name || user.email || "?")[0].toUpperCase() : "?";
 
-  const [chatList,     setChatList]     = useState([]);
-  const [chatId,       setChatId]       = useState(null);
-  const [chatPdfs,     setChatPdfs]     = useState([]);
-  const [messages,     setMessages]     = useState([]);
-  const [question,     setQuestion]     = useState("");
-  const [loading,      setLoading]      = useState(false);
-  const [uploading,    setUploading]    = useState(false);
+  const [chatList, setChatList] = useState([]);
+  const [chatId, setChatId] = useState(null);
+  const [chatPdfs, setChatPdfs] = useState([]);
+  const [messages, setMessages] = useState([]);
+  const [question, setQuestion] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [fileStatuses, setFileStatuses] = useState({});
-  const [sttLang,      setSttLang]      = useState("en-US");
-  const [interimText,  setInterimText]  = useState("");
+  const [sttLang, setSttLang] = useState("en-US");
+  const [interimText, setInterimText] = useState("");
 
-  const [systemPrompt,     setSystemPrompt]     = useState(DEFAULT_SYSTEM);
-  const [showSystemModal,  setShowSystemModal]  = useState(false);
-  const [editSystem,       setEditSystem]       = useState(DEFAULT_SYSTEM);
+  const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM);
+  const [showSystemModal, setShowSystemModal] = useState(false);
+  const [editSystem, setEditSystem] = useState(DEFAULT_SYSTEM);
   const [mode, setMode] = useState("rag");
 
   const [showKnowledgeMap, setShowKnowledgeMap] = useState(false);
@@ -68,7 +68,7 @@ export default function App() {
   const [edaSession, setEdaSession] = useState(null);
 
   const bottomRef = useRef();
-  const inputRef  = useRef();
+  const inputRef = useRef();
 
   const { speak, stop: stopTTS, speaking, ttsLang, setTtsLang, ttsRate, setTtsRate } = useTTS();
 
@@ -85,43 +85,43 @@ export default function App() {
   });
 
   const fetchChats = useCallback(async () => {
-    try { 
-      const r = await axios.get(`${BASE}/chats/${userId}`); 
-      setChatList(r.data.chats || []); 
+    try {
+      const r = await axios.get(`${BASE}/chats/${userId}`);
+      setChatList(r.data.chats || []);
     } catch (e) {
       console.error("Error fetching chats:", e);
     }
   }, [userId]);
 
-  useEffect(() => { 
-    if (userId) fetchChats(); 
+  useEffect(() => {
+    if (userId) fetchChats();
   }, [userId, fetchChats]);
 
-  useEffect(() => { 
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" }); 
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const loadChat = useCallback(async(id)=>{
+  const loadChat = useCallback(async (id) => {
     setChatId(id);
     try {
-      const r=await axios.get(`${BASE}/chat/${id}`);
-      setMessages((r.data.messages||[]).map(m=>({type:m.role,text:m.text})));
+      const r = await axios.get(`${BASE}/chat/${id}`);
+      setMessages((r.data.messages || []).map(m => ({ type: m.role, text: m.text, confidence: m.confidence })));
       setChatPdfs(r.data.pdfMeta || r.data.pdfs || []);
-      setChatKnowledgeMaps(r.data.knowledgeMaps||[]);
+      setChatKnowledgeMaps(r.data.knowledgeMaps || []);
       setKnowledgeGraph(null);
       setMapQuestion(null);
       setGraphFromCache(false);
       setActiveQuiz(null);
       setShowQuizSetup(false);
-    } catch(e){console.error(e);}
-  },[]);
+    } catch (e) { console.error(e); }
+  }, []);
 
-  const newChat = ()=>{
-    setChatId(null);setMessages([]);setQuestion("");setChatPdfs([]);setFileStatuses({});
-    setShowKnowledgeMap(false);setKnowledgeGraph(null);setMapQuestion(null);
+  const newChat = () => {
+    setChatId(null); setMessages([]); setQuestion(""); setChatPdfs([]); setFileStatuses({});
+    setShowKnowledgeMap(false); setKnowledgeGraph(null); setMapQuestion(null);
     setChatKnowledgeMaps([]);
     setGraphFromCache(false);
-    setLastQuestion(null);setLastAnswer(null);setGraphError(null);
+    setLastQuestion(null); setLastAnswer(null); setGraphError(null);
     setActiveQuiz(null);
     setShowQuizSetup(false);
   };
@@ -259,27 +259,27 @@ export default function App() {
     getLastQAPair(messages).question
   );
 
-  const handleUpload = async(files,clearFiles)=>{
+  const handleUpload = async (files, clearFiles) => {
     setUploading(true);
-    const init={};files.forEach(f=>{init[f.name]="uploading";});setFileStatuses(init);
-    const fd=new FormData();
-    files.forEach(f=>fd.append("files",f));
-    fd.append("chatId",chatId??"null"); fd.append("userId",userId);
+    const init = {}; files.forEach(f => { init[f.name] = "uploading"; }); setFileStatuses(init);
+    const fd = new FormData();
+    files.forEach(f => fd.append("files", f));
+    fd.append("chatId", chatId ?? "null"); fd.append("userId", userId);
     try {
-      const r=await axios.post(`${BASE}/upload`,fd);
-      if(r.data.error){const e={};files.forEach(f=>{e[f.name]="error";});setFileStatuses(e);alert("Upload failed: "+r.data.error);}
+      const r = await axios.post(`${BASE}/upload`, fd);
+      if (r.data.error) { const e = {}; files.forEach(f => { e[f.name] = "error"; }); setFileStatuses(e); alert("Upload failed: " + r.data.error); }
       else {
-        const ns={};
-        (r.data.uploaded||[]).forEach(u=>{ns[u.name]="done";});
-        (r.data.failed||[]).forEach(u=>{ns[u.name]="error";});
+        const ns = {};
+        (r.data.uploaded || []).forEach(u => { ns[u.name] = "done"; });
+        (r.data.failed || []).forEach(u => { ns[u.name] = "error"; });
         setFileStatuses(ns);
-        const cid=r.data.chatId; setChatId(cid);
+        const cid = r.data.chatId; setChatId(cid);
         await fetchChats(); await loadChat(cid);
-        const up=r.data.uploaded||[],fa=r.data.failed||[];
-        let sum=up.map(u=>`✅ ${u.name} — ${u.pages} pages, ${u.chunks} chunks`).join("\n");
-        if(fa.length) sum+="\n"+fa.map(f=>`❌ ${f.name}: ${f.error}`).join("\n");
-        sum+=`\n\nTotal indexed: ${r.data.total_chunks} chunks. Ask me anything!`;
-        setMessages(prev=>[...prev,{type:"bot",text:sum}]);
+        const up = r.data.uploaded || [], fa = r.data.failed || [];
+        let sum = up.map(u => `✅ ${u.name} — ${u.pages} pages, ${u.chunks} chunks`).join("\n");
+        if (fa.length) sum += "\n" + fa.map(f => `❌ ${f.name}: ${f.error}`).join("\n");
+        sum += `\n\nTotal indexed: ${r.data.total_chunks} chunks. Ask me anything!`;
+        setMessages(prev => [...prev, { type: "bot", text: sum }]);
         if (r.data.graph?.nodes?.length) {
           setKnowledgeGraph(r.data.graph);
           setGraphFromCache(!!r.data.graph.layoutComputed);
@@ -290,35 +290,36 @@ export default function App() {
           setShowKnowledgeMap(true); // Automatically open graph after upload
         }
 
-        setTimeout(clearFiles,1800);
+        setTimeout(clearFiles, 1800);
       }
 
-    } catch(e){console.error(e);const er={};files.forEach(f=>{er[f.name]="error";});setFileStatuses(er);alert("Upload failed — is the backend running?");}
+    } catch (e) { console.error(e); const er = {}; files.forEach(f => { er[f.name] = "error"; }); setFileStatuses(er); alert("Upload failed — is the backend running?"); }
     setUploading(false);
   };
 
-  const handleAsk = async()=>{
-    const q=question.trim(); if(!q||loading)return;
+  const handleAsk = async () => {
+    const q = question.trim(); if (!q || loading) return;
     stopListening();
     setQuestion(""); setInterimText("");
-    setMessages(prev=>[...prev,{type:"user",text:q}]);
+    setMessages(prev => [...prev, { type: "user", text: q }]);
     setLoading(true);
-    setMessages(prev=>[...prev,{type:"bot",text:"",typing:true}]);
+    setMessages(prev => [...prev, { type: "bot", text: "", typing: true }]);
     try {
-      const r=await axios.post(`${BASE}/ask`,{
+      const r = await axios.post(`${BASE}/ask`, {
         question: q,
         chatId,
         userId,
         systemPrompt: systemPrompt.trim() || undefined,
         mode,
       });
-      const answer=r?.data?.answer??"⚠️ No response";
-      if(r?.data?.chatId){setChatId(r.data.chatId);fetchChats();}
-      setMessages(prev=>{const u=[...prev];u[u.length-1]={type:"bot",text:""};return u;});
+      const answer = r?.data?.answer ?? "⚠️ No response";
+      const confidence = r?.data?.confidence ?? 0.0;
+      if (r?.data?.chatId) { setChatId(r.data.chatId); fetchChats(); }
+      setMessages(prev => { const u = [...prev]; u[u.length - 1] = { type: "bot", text: "", confidence: confidence }; return u; });
       setLastQuestion(q);
       setLastAnswer(answer);
-      await typeText(answer,typed=>{
-        setMessages(prev=>{const u=[...prev];u[u.length-1]={type:"bot",text:typed};return u;});
+      await typeText(answer, typed => {
+        setMessages(prev => { const u = [...prev]; u[u.length - 1] = { type: "bot", text: typed, confidence: confidence }; return u; });
       });
       setLastAnswer(answer);
 
@@ -331,7 +332,7 @@ export default function App() {
 
     } catch {
 
-      setMessages(prev=>{const u=[...prev];u[u.length-1]={type:"bot",text:"❌ Failed to get response."};return u;});
+      setMessages(prev => { const u = [...prev]; u[u.length - 1] = { type: "bot", text: "❌ Failed to get response." }; return u; });
     }
     setLoading(false); inputRef.current?.focus();
   };
@@ -364,9 +365,9 @@ export default function App() {
     }
   };
 
-  const clearChat  = async()=>{
-    if(!chatId)return;
-    await axios.delete(`${BASE}/chat/${chatId}`).catch(()=>{});
+  const clearChat = async () => {
+    if (!chatId) return;
+    await axios.delete(`${BASE}/chat/${chatId}`).catch(() => { });
     setMessages([]);
     setChatKnowledgeMaps([]);
     setKnowledgeGraph(null);
@@ -375,20 +376,20 @@ export default function App() {
     setActiveQuiz(null);
     setShowQuizSetup(false);
   };
-  const deleteChat = async(e,id)=>{ e.stopPropagation(); if(!window.confirm("Delete this chat?"))return; await axios.delete(`${BASE}/delete/${id}`).catch(()=>{}); if(chatId===id)newChat(); fetchChats(); };
-  const openPdf    = n=>window.open(`${BASE}/view-pdf/${n}`,"_blank");
-  const activeTitle= chatList.find(c=>c.id===chatId)?.title;
+  const deleteChat = async (e, id) => { e.stopPropagation(); if (!window.confirm("Delete this chat?")) return; await axios.delete(`${BASE}/delete/${id}`).catch(() => { }); if (chatId === id) newChat(); fetchChats(); };
+  const openPdf = n => window.open(`${BASE}/view-pdf/${n}`, "_blank");
+  const activeTitle = chatList.find(c => c.id === chatId)?.title;
 
   const sidebar = (
     <aside className="sidebar">
       <div className="sidebar-head">
         <div className="brand">
-          <div className="brand-icon"><IC.Bot/></div>
+          <div className="brand-icon"><IC.Bot /></div>
           <span className="brand-name">DocChat</span>
         </div>
-        <button className="btn-new" onClick={newChat}><IC.Plus/><span>New Chat</span></button>
-        
-        <Link to="/eda" className={`chat-item ${location.pathname === '/eda' ? 'chat-item-active' : ''}`} style={{textDecoration:'none', marginTop: '4px'}}>
+        <button className="btn-new" onClick={newChat}><IC.Plus /><span>New Chat</span></button>
+
+        <Link to="/eda" className={`chat-item ${location.pathname === '/eda' ? 'chat-item-active' : ''}`} style={{ textDecoration: 'none', marginTop: '4px' }}>
           <div className="chat-item-inner">
             <IC.Activity />
             <div className="chat-item-text">
@@ -397,7 +398,7 @@ export default function App() {
           </div>
         </Link>
 
-        <Link to="/" className={`chat-item ${location.pathname === '/' ? 'chat-item-active' : ''}`} style={{textDecoration:'none'}}>
+        <Link to="/" className={`chat-item ${location.pathname === '/' ? 'chat-item-active' : ''}`} style={{ textDecoration: 'none' }}>
           <div className="chat-item-inner">
             <IC.Chat />
             <div className="chat-item-text">
@@ -407,12 +408,12 @@ export default function App() {
         </Link>
       </div>
       <div className="chat-list">
-        {chatList.length===0
-          ?<p className="empty-hint">No chats yet</p>
-          :chatList.map(c=>(
-            <ChatItem key={c.id} chat={c} active={chatId===c.id}
-              pdfs={chatId===c.id?chatPdfs:[]}
-              onLoad={loadChat} onDelete={deleteChat} onOpenPdf={openPdf}/>
+        {chatList.length === 0
+          ? <p className="empty-hint">No chats yet</p>
+          : chatList.map(c => (
+            <ChatItem key={c.id} chat={c} active={chatId === c.id}
+              pdfs={chatId === c.id ? chatPdfs : []}
+              onLoad={loadChat} onDelete={deleteChat} onOpenPdf={openPdf} />
           ))
         }
       </div>
@@ -425,7 +426,7 @@ export default function App() {
           Sign out
         </button>
         <button className="btn-clear" onClick={clearChat} disabled={!chatId}>
-          <IC.Clear/><span>Clear Messages</span>
+          <IC.Clear /><span>Clear Messages</span>
         </button>
       </div>
     </aside>
@@ -443,14 +444,14 @@ export default function App() {
                 {isEdaPage ? "EDA Dashboard" : (activeTitle || "New Conversation")}
               </h1>
               {!isEdaPage && chatPdfs.length > 0 && (
-                <span className="topbar-badge">{chatPdfs.length} Document{chatPdfs.length !== 1 ? "s" : "" } loaded</span>
+                <span className="topbar-badge">{chatPdfs.length} Document{chatPdfs.length !== 1 ? "s" : ""} loaded</span>
               )}
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
               {isEdaPage ? (
                 <>
                   {edaSession && (
-                    <button 
+                    <button
                       onClick={() => setEdaSession(null)}
                       className="btn-icon-label"
                       style={{ color: 'var(--orange)', borderColor: 'var(--border-gold)' }}
@@ -513,9 +514,9 @@ export default function App() {
               type="system"
               value={editSystem}
               onChange={setEditSystem}
-              onClose={()=>setShowSystemModal(false)}
-              onSave={()=>setSystemPrompt(editSystem)}
-              onReset={()=>setEditSystem(DEFAULT_SYSTEM)}
+              onClose={() => setShowSystemModal(false)}
+              onSave={() => setSystemPrompt(editSystem)}
+              onReset={() => setEditSystem(DEFAULT_SYSTEM)}
             />
           )}
 
@@ -625,28 +626,28 @@ export default function App() {
               </>
             )}
 
-          {showKnowledgeMap && (
-            <KnowledgeMapPanel
-              graph={knowledgeGraph}
-              loading={graphLoading}
-              error={graphError}
-              chatId={chatId}
-              graphMode={graphMode}
-              initialFilter={initialGraphFilter}
-              fromCache={graphFromCache}
-              onClose={() => setShowKnowledgeMap(false)}
+            {showKnowledgeMap && (
+              <KnowledgeMapPanel
+                graph={knowledgeGraph}
+                loading={graphLoading}
+                error={graphError}
+                chatId={chatId}
+                graphMode={graphMode}
+                initialFilter={initialGraphFilter}
+                fromCache={graphFromCache}
+                onClose={() => setShowKnowledgeMap(false)}
 
-              onRefresh={() => {
-                if (graphMode === "pdf" && chatId) {
-                  fetchPdfGraph(true);
-                  return;
-                }
-                const q = mapQuestion || lastQuestion || getLastQAPair(messages).question;
-                const a = lastAnswer || getLastQAPair(messages).answer;
-                if (q) fetchKnowledgeMap(q, a, true);
-              }}
-            />
-          )}
+                onRefresh={() => {
+                  if (graphMode === "pdf" && chatId) {
+                    fetchPdfGraph(true);
+                    return;
+                  }
+                  const q = mapQuestion || lastQuestion || getLastQAPair(messages).question;
+                  const a = lastAnswer || getLastQAPair(messages).answer;
+                  if (q) fetchKnowledgeMap(q, a, true);
+                }}
+              />
+            )}
 
           </div>
         </main>

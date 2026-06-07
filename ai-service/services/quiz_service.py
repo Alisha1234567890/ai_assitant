@@ -14,29 +14,37 @@ from core.groq import (
 )
 from services.rag_service import get_embed_model
 
-MAX_CONTEXT_CHUNKS = int(os.getenv("QUIZ_MAX_CONTEXT_CHUNKS", "8"))
-MAX_CONTEXT_CHARS = int(os.getenv("QUIZ_MAX_CONTEXT_CHARS", "12000"))
-MAX_ESTIMATED_TOKENS = int(os.getenv("QUIZ_MAX_ESTIMATED_TOKENS", "4000"))
-MAX_RETRIEVAL_CANDIDATES = int(os.getenv("QUIZ_MAX_RETRIEVAL_CANDIDATES", "500"))
-RETRY_CONTEXT_REDUCTION_FACTOR = 0.5
+MAX_CONTEXT_CHUNKS = int(os.getenv("QUIZ_MAX_CONTEXT_CHUNKS", "3"))
+MAX_CONTEXT_CHARS = int(os.getenv("QUIZ_MAX_CONTEXT_CHARS", "3000"))
+MAX_ESTIMATED_TOKENS = int(os.getenv("QUIZ_MAX_ESTIMATED_TOKENS", "1500"))
+MAX_RETRIEVAL_CANDIDATES = int(os.getenv("QUIZ_MAX_RETRIEVAL_CANDIDATES", "100"))
+RETRY_CONTEXT_REDUCTION_FACTOR = 0.4
 
 async def extract_topics_from_chunks(chunks: List[str]) -> List[str]:
-    combined_text = " ".join(chunks[:10])
-    prompt = f"Extract 5-7 key topics from this text. Return as comma-separated list.\n\nTEXT:\n{combined_text}"
+    # Local topic extraction (NO API calls!)
+    combined_text = " ".join(chunks[:10]).lower()
     
-    result = await call_groq_efficient(
-        messages=[
-            {"role": "system", "content": "You are a topic extractor."},
-            {"role": "user", "content": prompt}
-        ],
-        model=GROQ_FAST_MODEL
-    )
+    # Remove common stopwords
+    stopwords = {"the", "and", "for", "that", "this", "with", "from", "your", "have", "are", "was", "but", "not", "you", "they", "them", "their", "there", "theirs", "then", "than", "into", "onto", "onto", "into", "when", "where", "why", "how", "what", "which", "who", "whom", "whose", "more", "most", "very", "just", "only", "also", "well", "back", "even", "still", "down", "up", "out", "in", "on", "at", "to", "of", "by", "a", "an", "is", "be", "been", "being", "has", "had", "do", "does", "did", "will", "would", "could", "should", "may", "might", "must", "shall", "can"}
     
-    if not result["success"]:
-        return []
+    # Extract words
+    words = re.findall(r"[a-z][a-z0-9]{2,}", combined_text)
     
-    topics = [t.strip() for t in result["content"].split(",") if t.strip()]
-    return topics[:8]
+    # Count word frequencies
+    word_freq = {}
+    for word in words:
+        if word not in stopwords:
+            word_freq[word] = word_freq.get(word, 0) + 1
+    
+    # Get top 8 topics
+    sorted_words = sorted(word_freq.items(), key=lambda x: (-x[1], x[0]))[:8]
+    topics = [word.title() for word, freq in sorted_words]
+    
+    # Ensure at least some topics
+    if not topics:
+        topics = ["Document Content", "Key Information", "Main Topics"]
+    
+    return topics
 
 
 def extract_important_concepts(topic: Optional[str]) -> List[str]:
@@ -216,15 +224,15 @@ def prepare_prompt_with_limits(
 
 async def call_groq_quiz(prompt: str, model: str = GROQ_FAST_MODEL) -> Dict[str, Any]:
     messages = [
-        {"role": "system", "content": "You are a professional quiz generator. Return ONLY JSON."},
+        {"role": "system", "content": "Quiz generator. Return JSON only."},
         {"role": "user", "content": prompt},
     ]
     
     return await call_groq_efficient(
         messages=messages,
         model=model,
-        temperature=0.2,
-        max_tokens=1024,
+        temperature=0.1,
+        max_tokens=600,
         response_format={"type": "json_object"}
     )
 

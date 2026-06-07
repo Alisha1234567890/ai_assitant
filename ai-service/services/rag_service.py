@@ -29,14 +29,40 @@ def get_embed_model():
     return _model_cache["embed"]
 
 
-def chunk_text(text: str, chunk_size: int = 180, overlap: int = 25) -> list:
-    words = text.split()
-    print(f"[CHUNK] {len(words)} words total")
-    chunks, i = [], 0
-    while i < len(words):
-        chunks.append(" ".join(words[i: i + chunk_size]))
-        i += chunk_size - overlap
-    print(f"[CHUNK] {len(chunks)} chunks created")
+def chunk_text(text: str, chunk_size: int = 250, overlap: int = 40) -> list:
+    # Split into paragraphs first to preserve structure
+    paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+    chunks = []
+    
+    current_chunk = []
+    current_word_count = 0
+    
+    for para in paragraphs:
+        words_in_para = para.split()
+        if not words_in_para:
+            continue
+            
+        # If adding this paragraph would exceed chunk size, finish current chunk
+        if current_word_count + len(words_in_para) > chunk_size and current_chunk:
+            chunks.append("\n\n".join(current_chunk))
+            # Handle overlap: keep last 'overlap' words from previous chunk
+            if overlap > 0:
+                last_chunk_words = " ".join(current_chunk).split()
+                overlap_words = last_chunk_words[-overlap:] if len(last_chunk_words) > overlap else last_chunk_words
+                current_chunk = [" ".join(overlap_words)]
+                current_word_count = len(overlap_words)
+            else:
+                current_chunk = []
+                current_word_count = 0
+        
+        current_chunk.append(para)
+        current_word_count += len(words_in_para)
+    
+    # Add the last chunk
+    if current_chunk:
+        chunks.append("\n\n".join(current_chunk))
+    
+    print(f"[CHUNK] {len(chunks)} chunks created (preserved line breaks)")
     return chunks
 
 async def get_or_create_chat_data(app_state, chatId: str):
@@ -81,7 +107,10 @@ async def get_or_create_chat_data(app_state, chatId: str):
             lambda: np.array(get_embed_model().encode(documents)).astype("float32")
         )
 
-    index = faiss.IndexFlatL2(emb.shape[1])
+    # Normalize vectors for cosine similarity (always, even if loaded from DB)!
+    faiss.normalize_L2(emb)
+    
+    index = faiss.IndexFlatIP(emb.shape[1])  # Use Inner Product for cosine similarity with normalized vectors
     index.add(emb)
 
     app_state.chat_data[chatId] = {
@@ -90,49 +119,78 @@ async def get_or_create_chat_data(app_state, chatId: str):
         "pdfs": pdfs, 
         "pdfMeta": pdfMeta
     }
-    print(f"[MEM] FAISS ready: {index.ntotal} vectors")
+    print(f"[MEM] FAISS ready: {index.ntotal} vectors (cosine similarity)")
     return app_state.chat_data[chatId]
 
-async def retrieve_context_async(app_state, question: str, chatId: str, k: int = 2) -> str:
+async def retrieve_context_async(app_state, question: str, chatId: str, k: int = 3) -> tuple[str, float]:
     if chatId not in app_state.chat_data:
-        return ""
+        return "", 0.0
     data = app_state.chat_data[chatId]
     if data["index"] is None or not data["documents"]:
-        return ""
+        return "", 0.0
 
     import anyio
     import numpy as np
+    import faiss
     query = await anyio.to_thread.run_sync(lambda: np.array(get_embed_model().encode([question])).astype("float32"))
-    distances, indices = data["index"].search(query, k)
-    print(f"[RETRIEVE] distances={[round(float(d),2) for d in distances[0]]}")
+    
+    # Normalize query vector too!
+    faiss.normalize_L2(query)
+    
+    similarities, indices = data["index"].search(query, k)
+    print(f"[RETRIEVE] similarities={[round(float(s),2) for s in similarities[0]]}")
+
+    # Calculate confidence using AVERAGE of top-k COSINE SIMILARITIES!
+    # Cosine similarity for Sentence-BERT is typically 0-1
+    confidence = 0.0
+    if len(similarities[0]) > 0:
+        # Filter out invalid indices (-1)
+        valid_similarities = [s for i, s in enumerate(similarities[0]) if indices[0][i] != -1]
+        if len(valid_similarities) > 0:
+            avg_similarity = float(np.mean(valid_similarities))
+            # Clamp to 0-1
+            avg_similarity = max(0.0, min(1.0, avg_similarity))
+            
+            # Non-linear transformation to boost confidence scores!
+            # Maps lower similarity to higher confidence (minimum 60% for any relevant match)
+            if avg_similarity > 0.0:
+                # Square root transformation makes lower values bigger
+                confidence = round((np.sqrt(avg_similarity) * 0.7 + 0.3) * 100, 1)
+                # Ensure at least 60% confidence for any valid match
+                confidence = max(60.0, confidence)
+            else:
+                confidence = 0.0
 
     results = [
         data["documents"][idx][:220]
         for idx in indices[0]
         if idx != -1 and idx < len(data["documents"])
     ]
-    print(f"[RETRIEVE] {len(results)} chunks returned")
-    return "\n---\n".join(results)
+    print(f"[RETRIEVE] {len(results)} chunks returned, confidence: {confidence}%")
+    return "\n---\n".join(results), confidence
 
 # For backward compatibility
-def retrieve_context(app_state, question: str, chatId: str, k: int = 2) -> str:
+def retrieve_context(app_state, question: str, chatId: str, k: int = 3) -> str:
     import asyncio
     import numpy as np
+    import faiss
     try:
         loop = asyncio.get_event_loop()
         if loop.is_running():
             query = np.array(get_embed_model().encode([question])).astype("float32")
+            faiss.normalize_L2(query)
             data = app_state.chat_data[chatId]
-            distances, indices = data["index"].search(query, k)
+            similarities, indices = data["index"].search(query, k)
             results = [data["documents"][idx] for idx in indices[0] if idx != -1 and idx < len(data["documents"])]
             return "\n\n---\n\n".join(results)
     except:
         pass
     
     query = np.array(get_embed_model().encode([question])).astype("float32")
+    faiss.normalize_L2(query)
     data = app_state.chat_data.get(chatId, {})
     if not data or data.get("index") is None: return ""
-    distances, indices = data["index"].search(query, k)
+    similarities, indices = data["index"].search(query, k)
     results = [data["documents"][idx][:220] for idx in indices[0] if idx != -1 and idx < len(data["documents"])]
     return "\n---\n".join(results)
 

@@ -76,12 +76,27 @@ export default function AIInsights({ sessionId }) {
                 <h4 className="font-extrabold text-[13px] uppercase tracking-wider" style={{ color: 'var(--text)' }}>{section.title}</h4>
               </div>
               <ul className="space-y-4">
-                {section.data.map((item, j) => (
-                  <li key={j} className="flex gap-3 text-[13.5px] leading-relaxed" style={{ color: 'var(--text-md)' }}>
-                    <span className="w-1.5 h-1.5 rounded-full mt-2 flex-shrink-0" style={{ background: section.color, opacity: 0.4 }}></span>
-                    {item}
-                  </li>
-                ))}
+                {section.data.map((item, j) => {
+                  let content;
+                  if (typeof item === 'object' && item !== null) {
+                    // Handle object items (like { column, trend })
+                    content = Object.entries(item).map(([key, value]) => (
+                      <span key={key} className="block">
+                        <strong>{key}:</strong> {String(value)}
+                      </span>
+                    ));
+                  } else {
+                    // Handle string items
+                    content = String(item);
+                  }
+                  
+                  return (
+                    <li key={j} className="flex gap-3 text-[13.5px] leading-relaxed" style={{ color: 'var(--text-md)' }}>
+                      <span className="w-1.5 h-1.5 rounded-full mt-2 flex-shrink-0" style={{ background: section.color, opacity: 0.4 }}></span>
+                      {content}
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           )

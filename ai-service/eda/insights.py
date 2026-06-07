@@ -6,7 +6,7 @@ from core.groq import GROQ_FAST_MODEL, call_groq_efficient
 
 async def generate_ai_insights(df: pd.DataFrame) -> Dict[str, Any]:
     """
-    Generates AI-driven insights from the dataset using Groq.
+    Generates AI-driven insights from the dataset using Ollama (NO Groq tokens!).
     """
     # 1. Prepare data summary for the AI
     # We provide statistical summary instead of raw data to fit context limits
@@ -15,32 +15,32 @@ async def generate_ai_insights(df: pd.DataFrame) -> Dict[str, Any]:
     numeric_summary = numeric_df.describe().round(2).to_dict() if not numeric_df.empty else "No numeric data"
     
     summary = {
-        "columns": df.columns.tolist()[:50], # Limit column count
+        "columns": df.columns.tolist()[:20], # Limit column count more
         "shape": df.shape,
         "types": {str(k): str(v) for k, v in df.dtypes.items()},
         "missing_values": df.isnull().sum().to_dict(),
         "numeric_summary": numeric_summary,
-        "sample_head": df.head(3).where(pd.notnull(df), None).to_dict(orient="records")
+        "sample_head": df.head(2).where(pd.notnull(df), None).to_dict(orient="records")
     }
 
     prompt = f"""
-    Analyze the following dataset summary and provide structured insights in JSON.
+    Analyze dataset. JSON only.
     
-    DATASET SUMMARY:
+    DATA:
     {json.dumps(summary)}
     
-    JSON STRUCTURE:
+    JSON OUTPUT:
     {{
-        "trends": ["list"],
-        "correlations": ["list"],
-        "outliers": ["list"],
-        "missing_value_warnings": ["list"],
-        "recommendations": ["list"]
+        "trends": [],
+        "correlations": [],
+        "outliers": [],
+        "missing_value_warnings": [],
+        "recommendations": []
     }}
     """
 
     messages = [
-        {"role": "system", "content": "You are a data analysis assistant. Return ONLY valid JSON."},
+        {"role": "system", "content": "Data analyst. JSON only."},
         {"role": "user", "content": prompt}
     ]
 
@@ -48,7 +48,7 @@ async def generate_ai_insights(df: pd.DataFrame) -> Dict[str, Any]:
         messages=messages,
         model=GROQ_FAST_MODEL,
         temperature=0.1,
-        response_format={"type": "json_object"}
+        max_tokens=600
     )
 
     if result["success"]:
