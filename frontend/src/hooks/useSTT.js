@@ -4,6 +4,7 @@ export function useSTT({ onResult, onInterim, sttLang }) {
   const [listening, setListening] = useState(false);
   const [supported, setSupported] = useState(false);
   const recogRef = useRef(null);
+  const lastResultRef = useRef("");
 
   useEffect(() => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -15,10 +16,11 @@ export function useSTT({ onResult, onInterim, sttLang }) {
     if (!SR) { alert("Speech recognition not supported. Use Chrome or Edge."); return; }
 
     window.speechSynthesis.cancel();
+    lastResultRef.current = "";
 
     const r = new SR();
     r.lang = sttLang;
-    r.continuous = true;
+    r.continuous = false; // Stop repetition!
     r.interimResults = true;
     r.maxAlternatives = 1;
 
@@ -30,7 +32,10 @@ export function useSTT({ onResult, onInterim, sttLang }) {
         else interim += t;
       }
       if (interim) onInterim(interim);
-      if (final) onResult(final);
+      if (final && final !== lastResultRef.current) {
+        lastResultRef.current = final;
+        onResult(final);
+      }
     };
 
     r.onerror = (e) => {

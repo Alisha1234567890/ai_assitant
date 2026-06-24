@@ -2,13 +2,10 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import axios from "axios";
 import { BASE, DEFAULT_SYSTEM } from "./constants";
 import { useAuth } from "./context/AuthContext";
-import { AUTH_CSS } from "./styles/authStyles";
 import { typeText } from "./utils/typeText";
-import { CSS } from "./styles/appStyles";
-import { IC } from "./icons/Icons";
+import { IC, Dots } from "./icons/Icons";
 import { useTTS } from "./hooks/useTTS";
 import { useSTT } from "./hooks/useSTT";
-import Dots from "./components/common/Dots";
 import TTSControls from "./components/speech/TTSControls";
 import STTButton from "./components/speech/STTButton";
 import PromptModal from "./components/prompts/PromptModal";
@@ -20,28 +17,37 @@ import UploadZone from "./components/upload/UploadZone";
 import GraphButton from "./components/knowledge/GraphButton";
 import KnowledgeMapPanel from "./components/knowledge/KnowledgeMapPanel";
 import ExportDropdown from "./components/chat/ExportDropdown";
+import QuizPanel from "./components/quiz/QuizPanel";
+import QuizInterface from "./components/quiz/QuizInterface";
+import EDA from "./pages/EDA/EDA";
+import { useTheme } from "./context/ThemeContext";
+import { Link, useLocation } from "react-router-dom";
 import { getLastQAPair } from "./utils/getLastQAPair";
 import { exportToPDF, exportSummaryToPDF, exportToMarkdown, exportToText } from "./utils/exportUtils";
 
 export default function App() {
+  const { theme, toggleTheme } = useTheme();
+  const location = useLocation();
+  const isEdaPage = location.pathname === "/eda";
+
   const { user, logout } = useAuth();
-  const userId = user.id;
-  const userInitial = (user.name || user.email || "?")[0].toUpperCase();
+  const userId = user?.id;
+  const userInitial = user ? (user.name || user.email || "?")[0].toUpperCase() : "?";
 
-  const [chatList,     setChatList]     = useState([]);
-  const [chatId,       setChatId]       = useState(null);
-  const [chatPdfs,     setChatPdfs]     = useState([]);
-  const [messages,     setMessages]     = useState([]);
-  const [question,     setQuestion]     = useState("");
-  const [loading,      setLoading]      = useState(false);
-  const [uploading,    setUploading]    = useState(false);
+  const [chatList, setChatList] = useState([]);
+  const [chatId, setChatId] = useState(null);
+  const [chatPdfs, setChatPdfs] = useState([]);
+  const [messages, setMessages] = useState([]);
+  const [question, setQuestion] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [fileStatuses, setFileStatuses] = useState({});
-  const [sttLang,      setSttLang]      = useState("en-US");
-  const [interimText,  setInterimText]  = useState("");
+  const [sttLang, setSttLang] = useState("en-US");
+  const [interimText, setInterimText] = useState("");
 
-  const [systemPrompt,     setSystemPrompt]     = useState(DEFAULT_SYSTEM);
-  const [showSystemModal,  setShowSystemModal]  = useState(false);
-  const [editSystem,       setEditSystem]       = useState(DEFAULT_SYSTEM);
+  const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM);
+  const [showSystemModal, setShowSystemModal] = useState(false);
+  const [editSystem, setEditSystem] = useState(DEFAULT_SYSTEM);
   const [mode, setMode] = useState("rag");
 
   const [showKnowledgeMap, setShowKnowledgeMap] = useState(false);
@@ -57,8 +63,12 @@ export default function App() {
   const [lastAnswer, setLastAnswer] = useState(null);
   const [loadingSummary, setLoadingSummary] = useState(false);
 
+  const [activeQuiz, setActiveQuiz] = useState(null);
+  const [showQuizSetup, setShowQuizSetup] = useState(false);
+  const [edaSession, setEdaSession] = useState(null);
+
   const bottomRef = useRef();
-  const inputRef  = useRef();
+  const inputRef = useRef();
 
   const { speak, stop: stopTTS, speaking, ttsLang, setTtsLang, ttsRate, setTtsRate } = useTTS();
 
@@ -66,48 +76,54 @@ export default function App() {
     sttLang,
     onInterim: (text) => {
       setInterimText(text);
-      setQuestion(prev => {
-        const base = prev.replace(/\[listening….*?\]$/, "").trimEnd();
-        return base ? base + " " + text : text;
-      });
     },
     onResult: (text) => {
       setInterimText("");
-      setQuestion(prev => {
-        const base = prev.replace(/\[listening….*?\]$/, "").trimEnd();
-        const combined = base ? base + " " + text : text;
-        return combined;
-      });
+      setQuestion(text); // Replace the question completely to avoid repetition!
       inputRef.current?.focus();
     },
   });
 
-  useEffect(()=>{ fetchChats(); },[userId]);
-  useEffect(()=>{ bottomRef.current?.scrollIntoView({behavior:"smooth"}); },[messages]);
+  const fetchChats = useCallback(async () => {
+    try {
+      const r = await axios.get(`${BASE}/chats/${userId}`);
+      setChatList(r.data.chats || []);
+    } catch (e) {
+      console.error("Error fetching chats:", e);
+    }
+  }, [userId]);
 
-  const fetchChats = async () => {
-    try { const r=await axios.get(`${BASE}/chats/${userId}`); setChatList(r.data.chats||[]); } catch{}
-  };
+  useEffect(() => {
+    if (userId) fetchChats();
+  }, [userId, fetchChats]);
 
-  const loadChat = useCallback(async(id)=>{
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  const loadChat = useCallback(async (id) => {
     setChatId(id);
     try {
-      const r=await axios.get(`${BASE}/chat/${id}`);
-      setMessages((r.data.messages||[]).map(m=>({type:m.role,text:m.text})));
+      const r = await axios.get(`${BASE}/chat/${id}`);
+      setMessages((r.data.messages || []).map(m => ({ type: m.role, text: m.text, confidence: m.confidence })));
       setChatPdfs(r.data.pdfMeta || r.data.pdfs || []);
-      setChatKnowledgeMaps(r.data.knowledgeMaps||[]);
+      setChatKnowledgeMaps(r.data.knowledgeMaps || []);
       setKnowledgeGraph(null);
       setMapQuestion(null);
       setGraphFromCache(false);
-    } catch(e){console.error(e);}
-  },[]);
+      setActiveQuiz(null);
+      setShowQuizSetup(false);
+    } catch (e) { console.error(e); }
+  }, []);
 
-  const newChat = ()=>{
-    setChatId(null);setMessages([]);setQuestion("");setChatPdfs([]);setFileStatuses({});
-    setShowKnowledgeMap(false);setKnowledgeGraph(null);setMapQuestion(null);
+  const newChat = () => {
+    setChatId(null); setMessages([]); setQuestion(""); setChatPdfs([]); setFileStatuses({});
+    setShowKnowledgeMap(false); setKnowledgeGraph(null); setMapQuestion(null);
     setChatKnowledgeMaps([]);
     setGraphFromCache(false);
-    setLastQuestion(null);setLastAnswer(null);setGraphError(null);
+    setLastQuestion(null); setLastAnswer(null); setGraphError(null);
+    setActiveQuiz(null);
+    setShowQuizSetup(false);
   };
 
   const upsertLocalKnowledgeMap = useCallback((data, question) => {
@@ -243,27 +259,27 @@ export default function App() {
     getLastQAPair(messages).question
   );
 
-  const handleUpload = async(files,clearFiles)=>{
+  const handleUpload = async (files, clearFiles) => {
     setUploading(true);
-    const init={};files.forEach(f=>{init[f.name]="uploading";});setFileStatuses(init);
-    const fd=new FormData();
-    files.forEach(f=>fd.append("files",f));
-    fd.append("chatId",chatId??"null"); fd.append("userId",userId);
+    const init = {}; files.forEach(f => { init[f.name] = "uploading"; }); setFileStatuses(init);
+    const fd = new FormData();
+    files.forEach(f => fd.append("files", f));
+    fd.append("chatId", chatId ?? "null"); fd.append("userId", userId);
     try {
-      const r=await axios.post(`${BASE}/upload`,fd);
-      if(r.data.error){const e={};files.forEach(f=>{e[f.name]="error";});setFileStatuses(e);alert("Upload failed: "+r.data.error);}
+      const r = await axios.post(`${BASE}/upload`, fd);
+      if (r.data.error) { const e = {}; files.forEach(f => { e[f.name] = "error"; }); setFileStatuses(e); alert("Upload failed: " + r.data.error); }
       else {
-        const ns={};
-        (r.data.uploaded||[]).forEach(u=>{ns[u.name]="done";});
-        (r.data.failed||[]).forEach(u=>{ns[u.name]="error";});
+        const ns = {};
+        (r.data.uploaded || []).forEach(u => { ns[u.name] = "done"; });
+        (r.data.failed || []).forEach(u => { ns[u.name] = "error"; });
         setFileStatuses(ns);
-        const cid=r.data.chatId; setChatId(cid);
+        const cid = r.data.chatId; setChatId(cid);
         await fetchChats(); await loadChat(cid);
-        const up=r.data.uploaded||[],fa=r.data.failed||[];
-        let sum=up.map(u=>`✅ ${u.name} — ${u.pages} pages, ${u.chunks} chunks`).join("\n");
-        if(fa.length) sum+="\n"+fa.map(f=>`❌ ${f.name}: ${f.error}`).join("\n");
-        sum+=`\n\nTotal indexed: ${r.data.total_chunks} chunks. Ask me anything!`;
-        setMessages(prev=>[...prev,{type:"bot",text:sum}]);
+        const up = r.data.uploaded || [], fa = r.data.failed || [];
+        let sum = up.map(u => `✅ ${u.name} — ${u.pages} pages, ${u.chunks} chunks`).join("\n");
+        if (fa.length) sum += "\n" + fa.map(f => `❌ ${f.name}: ${f.error}`).join("\n");
+        sum += `\n\nTotal indexed: ${r.data.total_chunks} chunks. Ask me anything!`;
+        setMessages(prev => [...prev, { type: "bot", text: sum }]);
         if (r.data.graph?.nodes?.length) {
           setKnowledgeGraph(r.data.graph);
           setGraphFromCache(!!r.data.graph.layoutComputed);
@@ -274,35 +290,36 @@ export default function App() {
           setShowKnowledgeMap(true); // Automatically open graph after upload
         }
 
-        setTimeout(clearFiles,1800);
+        setTimeout(clearFiles, 1800);
       }
 
-    } catch(e){console.error(e);const er={};files.forEach(f=>{er[f.name]="error";});setFileStatuses(er);alert("Upload failed — is the backend running?");}
+    } catch (e) { console.error(e); const er = {}; files.forEach(f => { er[f.name] = "error"; }); setFileStatuses(er); alert("Upload failed — is the backend running?"); }
     setUploading(false);
   };
 
-  const handleAsk = async()=>{
-    const q=question.trim(); if(!q||loading)return;
+  const handleAsk = async () => {
+    const q = question.trim(); if (!q || loading) return;
     stopListening();
     setQuestion(""); setInterimText("");
-    setMessages(prev=>[...prev,{type:"user",text:q}]);
+    setMessages(prev => [...prev, { type: "user", text: q }]);
     setLoading(true);
-    setMessages(prev=>[...prev,{type:"bot",text:"",typing:true}]);
+    setMessages(prev => [...prev, { type: "bot", text: "", typing: true }]);
     try {
-      const r=await axios.post(`${BASE}/ask`,{
+      const r = await axios.post(`${BASE}/ask`, {
         question: q,
         chatId,
         userId,
         systemPrompt: systemPrompt.trim() || undefined,
         mode,
       });
-      const answer=r?.data?.answer??"⚠️ No response";
-      if(r?.data?.chatId){setChatId(r.data.chatId);fetchChats();}
-      setMessages(prev=>{const u=[...prev];u[u.length-1]={type:"bot",text:""};return u;});
+      const answer = r?.data?.answer ?? "⚠️ No response";
+      const confidence = r?.data?.confidence ?? 0.0;
+      if (r?.data?.chatId) { setChatId(r.data.chatId); fetchChats(); }
+      setMessages(prev => { const u = [...prev]; u[u.length - 1] = { type: "bot", text: "", confidence: confidence }; return u; });
       setLastQuestion(q);
       setLastAnswer(answer);
-      await typeText(answer,typed=>{
-        setMessages(prev=>{const u=[...prev];u[u.length-1]={type:"bot",text:typed};return u;});
+      await typeText(answer, typed => {
+        setMessages(prev => { const u = [...prev]; u[u.length - 1] = { type: "bot", text: typed, confidence: confidence }; return u; });
       });
       setLastAnswer(answer);
 
@@ -315,7 +332,7 @@ export default function App() {
 
     } catch {
 
-      setMessages(prev=>{const u=[...prev];u[u.length-1]={type:"bot",text:"❌ Failed to get response."};return u;});
+      setMessages(prev => { const u = [...prev]; u[u.length - 1] = { type: "bot", text: "❌ Failed to get response." }; return u; });
     }
     setLoading(false); inputRef.current?.focus();
   };
@@ -348,83 +365,147 @@ export default function App() {
     }
   };
 
-  const clearChat  = async()=>{
-    if(!chatId)return;
-    await axios.delete(`${BASE}/chat/${chatId}`).catch(()=>{});
+  const clearChat = async () => {
+    if (!chatId) return;
+    await axios.delete(`${BASE}/chat/${chatId}`).catch(() => { });
     setMessages([]);
     setChatKnowledgeMaps([]);
     setKnowledgeGraph(null);
     setMapQuestion(null);
     setGraphFromCache(false);
+    setActiveQuiz(null);
+    setShowQuizSetup(false);
   };
-  const deleteChat = async(e,id)=>{ e.stopPropagation(); if(!window.confirm("Delete this chat?"))return; await axios.delete(`${BASE}/delete/${id}`).catch(()=>{}); if(chatId===id)newChat(); fetchChats(); };
-  const openPdf    = n=>window.open(`${BASE}/view-pdf/${n}`,"_blank");
-  const activeTitle= chatList.find(c=>c.id===chatId)?.title;
+  const deleteChat = async (e, id) => { e.stopPropagation(); if (!window.confirm("Delete this chat?")) return; await axios.delete(`${BASE}/delete/${id}`).catch(() => { }); if (chatId === id) newChat(); fetchChats(); };
+  const openPdf = n => window.open(`${BASE}/view-pdf/${n}`, "_blank");
+  const activeTitle = chatList.find(c => c.id === chatId)?.title;
+
+  const sidebar = (
+    <aside className="sidebar">
+      <div className="sidebar-head">
+        <div className="brand">
+          <div className="brand-icon"><IC.Bot /></div>
+          <span className="brand-name">DocChat</span>
+        </div>
+        <button className="btn-new" onClick={newChat}><IC.Plus /><span>New Chat</span></button>
+
+        <Link to="/eda" className={`chat-item ${location.pathname === '/eda' ? 'chat-item-active' : ''}`} style={{ textDecoration: 'none', marginTop: '4px' }}>
+          <div className="chat-item-inner">
+            <IC.Activity />
+            <div className="chat-item-text">
+              <p className="chat-title">📊 EDA Analysis</p>
+            </div>
+          </div>
+        </Link>
+
+        <Link to="/" className={`chat-item ${location.pathname === '/' ? 'chat-item-active' : ''}`} style={{ textDecoration: 'none' }}>
+          <div className="chat-item-inner">
+            <IC.Chat />
+            <div className="chat-item-text">
+              <p className="chat-title">💬 AI Chat</p>
+            </div>
+          </div>
+        </Link>
+      </div>
+      <div className="chat-list">
+        {chatList.length === 0
+          ? <p className="empty-hint">No chats yet</p>
+          : chatList.map(c => (
+            <ChatItem key={c.id} chat={c} active={chatId === c.id}
+              pdfs={chatId === c.id ? chatPdfs : []}
+              onLoad={loadChat} onDelete={deleteChat} onOpenPdf={openPdf} />
+          ))
+        }
+      </div>
+      <div className="sidebar-foot">
+        <div className="sidebar-user">
+          <strong>{user.name}</strong>
+          <span>{user.email}</span>
+        </div>
+        <button type="button" className="btn-logout" onClick={logout}>
+          Sign out
+        </button>
+        <button className="btn-clear" onClick={clearChat} disabled={!chatId}>
+          <IC.Clear /><span>Clear Messages</span>
+        </button>
+      </div>
+    </aside>
+  );
 
   return (
     <>
-      <style>{CSS}{AUTH_CSS}</style>
       <div className="shell">
-
-        <aside className="sidebar">
-          <div className="sidebar-head">
-            <div className="brand">
-              <div className="brand-icon"><IC.Bot/></div>
-              <span className="brand-name">DocChat</span>
-            </div>
-            <button className="btn-new" onClick={newChat}><IC.Plus/><span>New Chat</span></button>
-          </div>
-          <div className="chat-list">
-            {chatList.length===0
-              ?<p className="empty-hint">No chats yet</p>
-              :chatList.map(c=>(
-                <ChatItem key={c.id} chat={c} active={chatId===c.id}
-                  pdfs={chatId===c.id?chatPdfs:[]}
-                  onLoad={loadChat} onDelete={deleteChat} onOpenPdf={openPdf}/>
-              ))
-            }
-          </div>
-          <div className="sidebar-foot">
-            <div className="sidebar-user">
-              <strong>{user.name}</strong>
-              <span>{user.email}</span>
-            </div>
-            <button type="button" className="btn-logout" onClick={logout}>
-              Sign out
-            </button>
-            <button className="btn-clear" onClick={clearChat} disabled={!chatId}>
-              <IC.Clear/><span>Clear Messages</span>
-            </button>
-          </div>
-        </aside>
+        {sidebar}
 
         <main className={`main ${showKnowledgeMap ? "main-split" : ""}`}>
           <header className="topbar">
             <div className="topbar-left">
-              <h1 className="topbar-title">{activeTitle||"New Conversation"}</h1>
-              {chatPdfs.length>0&&(
-                <span className="topbar-badge">{chatPdfs.length} Document{chatPdfs.length!==1?"s":""} loaded</span>
+              <h1 className="topbar-title">
+                {isEdaPage ? "EDA Dashboard" : (activeTitle || "New Conversation")}
+              </h1>
+              {!isEdaPage && chatPdfs.length > 0 && (
+                <span className="topbar-badge">{chatPdfs.length} Document{chatPdfs.length !== 1 ? "s" : ""} loaded</span>
               )}
             </div>
-            <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
-              <ExportDropdown onExport={handleExport} loadingSummary={loadingSummary} />
-              <ModeToggle mode={mode} onChange={setMode} />
-              <div className="prompt-btns">
-                <PromptButtons
-                  onOpenSystem={()=>{ setEditSystem(systemPrompt); setShowSystemModal(true); }}
-                  systemActive={systemPrompt !== DEFAULT_SYSTEM}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+              {isEdaPage ? (
+                <>
+                  {edaSession && (
+                    <button
+                      onClick={() => setEdaSession(null)}
+                      className="btn-icon-label"
+                      style={{ color: 'var(--orange)', borderColor: 'var(--border-gold)' }}
+                      title="New Analysis"
+                    >
+                      <IC.Clear />
+                      <span>Reset</span>
+                    </button>
+                  )}
+                </>
+              ) : (
+                <>
+                  {chatPdfs.length > 0 && (
+                    <button
+                      className={`btn-icon-label ${showQuizSetup || activeQuiz ? "active" : ""}`}
+                      onClick={() => {
+                        setShowQuizSetup(!showQuizSetup);
+                        setActiveQuiz(null);
+                      }}
+                      title="Generate Quiz"
+                    >
+                      <IC.Quiz />
+                      <span>Quiz</span>
+                    </button>
+                  )}
+                  <ExportDropdown onExport={handleExport} loadingSummary={loadingSummary} />
+                  <ModeToggle mode={mode} onChange={setMode} />
+                  <div className="prompt-btns">
+                    <PromptButtons
+                      onOpenSystem={() => { setEditSystem(systemPrompt); setShowSystemModal(true); }}
+                      systemActive={systemPrompt !== DEFAULT_SYSTEM}
+                    />
+                    <GraphButton
+                      active={showKnowledgeMap}
+                      disabled={!canOpenGraph}
+                      onClick={toggleKnowledgeMap}
+                    />
+                  </div>
+                </>
+              )}
+              <button
+                className="btn-theme-toggle"
+                onClick={toggleTheme}
+                title={theme === "light" ? "Switch to Dark Mode" : "Switch to Light Mode"}
+              >
+                {theme === "light" ? <IC.Moon /> : <IC.Sun />}
+              </button>
+              {!isEdaPage && (
+                <TTSControls
+                  ttsLang={ttsLang} setTtsLang={setTtsLang}
+                  ttsRate={ttsRate} setTtsRate={setTtsRate}
+                  speaking={speaking} onStop={stopTTS}
                 />
-                <GraphButton
-                  active={showKnowledgeMap}
-                  disabled={!canOpenGraph}
-                  onClick={toggleKnowledgeMap}
-                />
-              </div>
-              <TTSControls
-                ttsLang={ttsLang} setTtsLang={setTtsLang}
-                ttsRate={ttsRate} setTtsRate={setTtsRate}
-                speaking={speaking} onStop={stopTTS}
-              />
+              )}
             </div>
           </header>
 
@@ -433,109 +514,140 @@ export default function App() {
               type="system"
               value={editSystem}
               onChange={setEditSystem}
-              onClose={()=>setShowSystemModal(false)}
-              onSave={()=>setSystemPrompt(editSystem)}
-              onReset={()=>setEditSystem(DEFAULT_SYSTEM)}
+              onClose={() => setShowSystemModal(false)}
+              onSave={() => setSystemPrompt(editSystem)}
+              onReset={() => setEditSystem(DEFAULT_SYSTEM)}
             />
           )}
 
           <div className="main-body">
-          <div className="chat-pane">
-
-          <div className="msgs">
-            {messages.length===0
-              ?(
-                <div className="empty-state">
-                  <div className="empty-icon"><IC.Bot/></div>
-                  <p className="empty-title">DocChat AI</p>
-                  {mode==="chat"
-                    ? <p className="empty-sub">Chat freely with AI — ask anything, no documents needed</p>
-                    : <p className="empty-sub">Upload documents · Ask questions · Listen to answers</p>
-                  }
-                  <div className="empty-features">
-                    {mode==="chat" ? <>
-                      <span className="feat-chip"><IC.ChatBubble/> Free AI Chat</span>
-                      <span className="feat-chip"><IC.Prompt/> Custom System Prompt</span>
-                      <span className="feat-chip"><IC.Volume/> Voice output (TTS)</span>
-                    </> : <>
-                      <span className="feat-chip"><IC.File/> Multi-Format RAG</span>
-                      <span className="feat-chip"><IC.Mic/> Voice input (STT)</span>
-                      <span className="feat-chip"><IC.Volume/> Voice output (TTS)</span>
-                    </>}
+            {isEdaPage ? (
+              <EDA sessionData={edaSession} setSessionData={setEdaSession} />
+            ) : (
+              <>
+                {activeQuiz ? (
+                  <div className="quiz-view-overlay">
+                    <QuizInterface
+                      quiz={activeQuiz}
+                      userId={userId}
+                      onFinish={() => setActiveQuiz(null)}
+                    />
                   </div>
-                  {mode==="chat" && (
-                    <div className="mode-hint-box">
-                      <IC.ChatBubble/>
-                      <span>Chat mode active — type anything to start. Switch to <b>PDF RAG</b> to ask from documents.</span>
+                ) : showQuizSetup ? (
+                  <div className="quiz-setup-overlay">
+                    <div className="quiz-setup-container">
+                      <QuizPanel
+                        chatId={chatId}
+                        userId={userId}
+                        chatPdfs={chatPdfs}
+                        onGenerate={(data) => {
+                          setActiveQuiz(data);
+                          setShowQuizSetup(false);
+                        }}
+                      />
+                      <button className="btn-close-setup" onClick={() => setShowQuizSetup(false)}>
+                        <IC.Close /> Cancel
+                      </button>
                     </div>
-                  )}
-                </div>
-              )
-              :messages.map((m,i)=><Bubble key={i} msg={m} onSpeak={speak} speaking={speaking} userInitial={userInitial}/>)
-            }
-            {listening&&interimText&&(
-              <div className="stt-interim">
-                <span className="stt-interim-dot"/>
-                <span>{interimText}</span>
-              </div>
+                  </div>
+                ) : (
+                  <div className="chat-pane">
+                    <div className="msgs">
+                      {messages.length === 0
+                        ? (
+                          <div className="empty-state">
+                            <div className="empty-icon"><IC.Bot /></div>
+                            <p className="empty-title">DocChat AI</p>
+                            {mode === "chat"
+                              ? <p className="empty-sub">Chat freely with AI — ask anything, no documents needed</p>
+                              : <p className="empty-sub">Upload documents · Ask questions · Listen to answers</p>
+                            }
+                            <div className="empty-features">
+                              {mode === "chat" ? <>
+                                <span className="feat-chip"><IC.ChatBubble /> Free AI Chat</span>
+                                <span className="feat-chip"><IC.Prompt /> Custom System Prompt</span>
+                                <span className="feat-chip"><IC.Volume /> Voice output (TTS)</span>
+                              </> : <>
+                                <span className="feat-chip"><IC.File /> Multi-Format RAG</span>
+                                <span className="feat-chip"><IC.Mic /> Voice input (STT)</span>
+                                <span className="feat-chip"><IC.Volume /> Voice output (TTS)</span>
+                              </>}
+                            </div>
+                            {mode === "chat" && (
+                              <div className="mode-hint-box">
+                                <IC.ChatBubble />
+                                <span>Chat mode active — type anything to start. Switch to <b>Document RAG</b> to ask from documents.</span>
+                              </div>
+                            )}
+                          </div>
+                        )
+                        : messages.map((m, i) => <Bubble key={i} msg={m} onSpeak={speak} speaking={speaking} userInitial={userInitial} />)
+                      }
+                      {listening && interimText && (
+                        <div className="stt-interim">
+                          <span className="stt-interim-dot" />
+                          <span>{interimText}</span>
+                        </div>
+                      )}
+                      <div ref={bottomRef} />
+                    </div>
+
+                    {listening && (
+                      <div className="stt-banner">
+                        <span className="stt-banner-dot" />
+                        <span>Listening… speak your question</span>
+                        <button className="stt-banner-stop" onClick={stopListening}><IC.Stop /> Stop</button>
+                      </div>
+                    )}
+
+                    <div className="input-row">
+                      <textarea ref={inputRef} className="input-box" value={question}
+                        onChange={e => setQuestion(e.target.value)}
+                        onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleAsk(); } }}
+                        placeholder={listening ? "Listening… (or type here)" : mode === "chat" ? "Chat with AI… (Enter to send)" : "Ask from your documents… (Enter to send)"}
+                        rows={1}
+                      />
+                      <STTButton
+                        listening={listening}
+                        supported={sttSupported}
+                        sttLang={sttLang}
+                        setSttLang={setSttLang}
+                        onStart={startListening}
+                        onStop={stopListening}
+                      />
+                      <button className="btn-send" onClick={handleAsk} disabled={loading || !question.trim()}>
+                        {loading ? <Dots /> : <IC.Send />}
+                      </button>
+                    </div>
+
+                    <UploadZone onUpload={handleUpload} uploading={uploading} fileStatuses={fileStatuses} />
+                  </div>
+                )}
+              </>
             )}
-            <div ref={bottomRef}/>
-          </div>
 
-          {listening&&(
-            <div className="stt-banner">
-              <span className="stt-banner-dot"/>
-              <span>Listening… speak your question</span>
-              <button className="stt-banner-stop" onClick={stopListening}><IC.Stop/> Stop</button>
-            </div>
-          )}
+            {showKnowledgeMap && (
+              <KnowledgeMapPanel
+                graph={knowledgeGraph}
+                loading={graphLoading}
+                error={graphError}
+                chatId={chatId}
+                graphMode={graphMode}
+                initialFilter={initialGraphFilter}
+                fromCache={graphFromCache}
+                onClose={() => setShowKnowledgeMap(false)}
 
-          <div className="input-row">
-            <textarea ref={inputRef} className="input-box" value={question}
-              onChange={e=>setQuestion(e.target.value)}
-              onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();handleAsk();}}}
-              placeholder={listening?"Listening… (or type here)":mode==="chat"?"Chat with AI… (Enter to send)":"Ask from your PDFs… (Enter to send)"}
-              rows={1}
-            />
-            <STTButton
-              listening={listening}
-              supported={sttSupported}
-              sttLang={sttLang}
-              setSttLang={setSttLang}
-              onStart={startListening}
-              onStop={stopListening}
-            />
-            <button className="btn-send" onClick={handleAsk} disabled={loading||!question.trim()}>
-              {loading?<Dots/>:<IC.Send/>}
-            </button>
-          </div>
-
-          <UploadZone onUpload={handleUpload} uploading={uploading} fileStatuses={fileStatuses}/>
-
-          </div>
-
-          {showKnowledgeMap && (
-            <KnowledgeMapPanel
-              graph={knowledgeGraph}
-              loading={graphLoading}
-              error={graphError}
-              chatId={chatId}
-              graphMode={graphMode}
-              initialFilter={initialGraphFilter}
-              fromCache={graphFromCache}
-              onClose={() => setShowKnowledgeMap(false)}
-
-              onRefresh={() => {
-                if (graphMode === "pdf" && chatId) {
-                  fetchPdfGraph(true);
-                  return;
-                }
-                const q = mapQuestion || lastQuestion || getLastQAPair(messages).question;
-                const a = lastAnswer || getLastQAPair(messages).answer;
-                if (q) fetchKnowledgeMap(q, a, true);
-              }}
-            />
-          )}
+                onRefresh={() => {
+                  if (graphMode === "pdf" && chatId) {
+                    fetchPdfGraph(true);
+                    return;
+                  }
+                  const q = mapQuestion || lastQuestion || getLastQAPair(messages).question;
+                  const a = lastAnswer || getLastQAPair(messages).answer;
+                  if (q) fetchKnowledgeMap(q, a, true);
+                }}
+              />
+            )}
 
           </div>
         </main>

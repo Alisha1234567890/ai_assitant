@@ -10,7 +10,8 @@ from datetime import datetime
 from bson import ObjectId
 from core.database import chat_collection
 from models.schemas import KnowledgeMapRequest, GraphPositionsRequest, GraphBuildRequest
-from services.rag_service import embed_model, GROQ_API_URL, GROQ_MODEL
+from core.groq import GROQ_MODEL, GROQ_FAST_MODEL, call_groq_efficient
+from services.rag_service import get_embed_model, retrieve_context_async
 import graph_engine as ge
 
 router = APIRouter(tags=["graph"])
@@ -35,7 +36,7 @@ async def _build_pdf_graph_for_chat(chat_id: str, pdf_name: str, chunk_texts: li
         return
     existing = await _get_chat_pdf_graphs(chat_id)
     color_idx = len([g for g in existing if g.get("pdfId") != ge.pdf_id_from_name(pdf_name)])
-    new_sub = ge.build_pdf_subgraph(pdf_name, chunk_texts, embed_model, color_index=color_idx)
+    new_sub = ge.build_pdf_subgraph(pdf_name, chunk_texts, get_embed_model(), color_index=color_idx)
     merged_list = ge.upsert_pdf_graph(existing, new_sub)
     chat = await chat_collection.find_one({"_id": ObjectId(chat_id)}) or {}
     positions = chat.get("graphPositions", {})
@@ -47,7 +48,7 @@ async def _get_merged_graph_payload(chat_id: str) -> dict:
     pdf_graphs = (chat or {}).get("pdfGraphs", [])
     positions = (chat or {}).get("graphPositions", {})
     viewport = (chat or {}).get("graphViewport", {"zoom": 1, "pan": {"x": 0, "y": 0}})
-    payload = ge.merge_chat_graph(pdf_graphs, embed_model)
+    payload = ge.merge_chat_graph(pdf_graphs, get_embed_model())
     payload["positions"] = {**payload.get("positions", {}), **positions}
     payload["viewport"] = viewport
     payload["hasPositions"] = len(positions) > 0
@@ -199,11 +200,7 @@ def parse_knowledge_map_json(raw: str) -> dict | None:
         center = nodes[0]["id"]
     return {"nodes": nodes[:15], "edges": edges[:25], "centerId": center}
 
-def call_groq_knowledge_map(question: str, answer: str | None, context: str | None = None) -> dict:
-    api_key = os.getenv("GROQ_API_KEY")
-    if not api_key:
-        return fallback_knowledge_map(question, answer)
-
+async def call_groq_knowledge_map(question: str, answer: str | None, context: str | None = None) -> dict:
     system_prompt = (
         "You build knowledge maps for semantic exploration. "
         "Return ONLY valid JSON (no markdown): "
@@ -218,29 +215,24 @@ def call_groq_knowledge_map(question: str, answer: str | None, context: str | No
     if context:
         user_parts.append(f"DOCUMENT CONTEXT:\n{context[:1500]}")
 
-    payload = {
-        "model": GROQ_MODEL,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": "\n\n".join(user_parts)},
-        ],
-        "max_tokens": 800,
-        "temperature": 0.3,
-        "top_p": 0.9,
-    }
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": "\n\n".join(user_parts)},
+    ]
 
-    resp = requests.post(
-        GROQ_API_URL,
-        json=payload,
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        timeout=25,
+    result = await call_groq_efficient(
+        messages=messages,
+        model=GROQ_FAST_MODEL,
+        temperature=0.3,
+        max_tokens=800,
+        response_format={"type": "json_object"}
     )
-    data = resp.json()
-    if "choices" not in data:
+
+    if not result["success"]:
+        print(f"[GRAPH] Groq call failed: {result.get('details')}")
         return fallback_knowledge_map(question, answer)
 
-    raw = data["choices"][0]["message"]["content"]
-    parsed = parse_knowledge_map_json(raw)
+    parsed = parse_knowledge_map_json(result["content"])
     return parsed if parsed else fallback_knowledge_map(question, answer)
 
 def _find_saved_knowledge_map(chat_doc: dict, question: str) -> dict | None:
@@ -266,7 +258,7 @@ async def _save_knowledge_map_to_chat(chat_id: str, question: str, answer: str |
         "nodes": graph.get("nodes", []),
         "edges": graph.get("edges", []),
         "centerId": graph.get("centerId"),
-        "createdAt": datetime.utcnow(),
+        "createdAt": datetime.now(),
     }
     await chat_collection.update_one(
         {"_id": ObjectId(chat_id)},
@@ -310,12 +302,28 @@ async def knowledge_map(request: Request, req: KnowledgeMapRequest):
                 return cached
 
         # Use RAG service for context
-        from services.rag_service import retrieve_context
         context = ""
+        retrieved_chunks = []
         if req.chatId and ObjectId.is_valid(req.chatId):
-            context = retrieve_context(request.app.state, req.question, req.chatId)
+            ctx_result = await retrieve_context_async(request.app.state, req.question, req.chatId)
+            if isinstance(ctx_result, tuple):
+                context, _ = ctx_result
+            else:
+                context = ctx_result
+            # Extract readable chunks
+            retrieved_chunks = [c.strip() for c in str(context).split("\n---\n") if len(c.strip()) > 20]
         
-        graph = call_groq_knowledge_map(req.question, req.answer, context)
+        graph = await call_groq_knowledge_map(req.question, req.answer, context)
+        
+        # Attach retrieved PDF context to the nodes (NO GROQ USED!)
+        if retrieved_chunks and graph.get("nodes"):
+            for i, node in enumerate(graph["nodes"]):
+                chunk_idx = i % len(retrieved_chunks)
+                chunk_text = retrieved_chunks[chunk_idx]
+                if len(chunk_text) > 350:
+                    cut_idx = chunk_text.rfind(' ', 0, 350)
+                    chunk_text = chunk_text[:cut_idx] + "..." if cut_idx != -1 else chunk_text[:350] + "..."
+                node["chunkText"] = chunk_text
         
         map_id = None
         if req.chatId and ObjectId.is_valid(req.chatId):

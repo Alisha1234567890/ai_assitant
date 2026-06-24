@@ -3,7 +3,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from core.database import init_db
-from routers import auth, chat, graph
+from routers import auth, chat, graph, quiz
+from eda.routes import router as eda_router
 
 app = FastAPI(title="DocChat AI API")
 
@@ -24,10 +25,28 @@ app.add_middleware(
 # ---------- GLOBAL STATE ----------
 app.state.chat_data = {}
 
+# Set environment variables to speed up model loading and suppress warnings
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+
 # ---------- DATABASE INIT ----------
 @app.on_event("startup")
 async def startup_event():
+    # 1. Init Database
     await init_db()
+    
+    # 2. Pre-load ML Model
+    # We load it during startup so that the very first upload is instant.
+    import asyncio
+    from services.rag_service import get_embed_model
+    print("[STARTUP] Pre-loading embedding model in background...")
+    # asyncio.to_thread is the correct way to run sync functions in a thread
+    asyncio.create_task(asyncio.to_thread(get_embed_model))
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    from services.rag_service import close_http_client
+    await close_http_client()
 
 # ---------- HEALTH ----------
 @app.get("/")
@@ -45,13 +64,18 @@ async def home():
         "database":     mongo_status,
         "groq_key_set": bool(os.getenv("GROQ_API_KEY")),
         "mongo_set":    bool(os.getenv("MONGO_URL")),
-        "model":        "llama-3.3-70b-versatile",
+        "models": {
+            "default": "llama-3.3-70b-versatile",
+            "fast": "llama-3.1-8b-instant"
+        }
     }
 
 # ---------- ROUTERS ----------
 app.include_router(auth.router)
 app.include_router(chat.router)
 app.include_router(graph.router)
+app.include_router(quiz.router)
+app.include_router(eda_router)
 
 if __name__ == "__main__":
     import uvicorn

@@ -29,9 +29,9 @@ async def auth_signup(req: SignupRequest):
 
         doc = {
             "email": email,
-            "passwordHash": hash_password(req.password),
+            "passwordHash": await hash_password(req.password),
             "name": (req.name or "").strip() or email.split("@")[0],
-            "createdAt": datetime.utcnow(),
+            "createdAt": datetime.now(),
         }
         
         try:
@@ -51,20 +51,35 @@ async def auth_signup(req: SignupRequest):
 
 @router.post("/login")
 async def auth_login(req: LoginRequest):
+    start_time = datetime.utcnow()
+    print(f"[AUTH] Login attempt for: {req.email}")
     try:
         email = normalize_email(req.email)
         
         try:
+            print("[AUTH] Fetching user from DB...")
             user = await users_collection.find_one({"email": email})
+            print(f"[AUTH] DB fetch took: {(datetime.utcnow() - start_time).total_seconds():.3f}s")
         except Exception as e:
             print(f"[AUTH] Database error during login: {e}")
             raise HTTPException(status_code=503, detail="Database connection error.")
 
-        if not user or not verify_password(req.password, user["passwordHash"]):
+        if not user:
+            print("[AUTH] Login failed: User not found")
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+
+        print("[AUTH] Verifying password...")
+        verify_start = datetime.utcnow()
+        is_valid = await verify_password(req.password, user["passwordHash"])
+        print(f"[AUTH] Password verification took: {(datetime.utcnow() - verify_start).total_seconds():.3f}s")
+
+        if not is_valid:
+            print("[AUTH] Login failed: Invalid password")
             raise HTTPException(status_code=401, detail="Invalid email or password")
 
         user_id = str(user["_id"])
         token = create_access_token(user_id, email)
+        print(f"[AUTH] Login successful for {email}. Total time: {(datetime.utcnow() - start_time).total_seconds():.3f}s")
         return {"token": token, "user": user_public(user)}
     except HTTPException:
         raise

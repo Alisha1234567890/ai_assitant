@@ -3,19 +3,19 @@ import { IC } from "../../icons/Icons";
 
 export default function ChatItem({ chat, active, pdfs, onLoad, onDelete, onOpenPdf }) {
   return (
-    <div className={`chat-item ${active ? "active" : ""}`} onClick={() => onLoad(chat.id)}>
-      <div className="chat-item-main">
+    <div className={`chat-item ${active ? "chat-item-active" : ""}`} onClick={() => onLoad(chat.id)}>
+      <div className="chat-item-inner">
         <IC.Chat />
         <div className="chat-item-text">
           <p className="chat-title">{chat.title || "Untitled"}</p>
           <p className="chat-meta">{chat.pdfCount || 0} Document{chat.pdfCount !== 1 ? "s" : ""}</p>
         </div>
-        <button className="btn-delete-chat" onClick={(e) => { e.stopPropagation(); onDelete(chat.id); }}>
+        <button className="btn-icon btn-delete" onClick={(e) => { e.stopPropagation(); onDelete(e, chat.id); }} title="Delete chat">
           <IC.Trash />
         </button>
       </div>
-      
-      {active && pdfs.length > 0 && (
+
+      {active && pdfs && pdfs.length > 0 && (
         <div className="pdf-list">
           {pdfs.map((p, i) => {
             const isMeta = typeof p === 'object' && p !== null;

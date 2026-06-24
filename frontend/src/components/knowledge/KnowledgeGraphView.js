@@ -8,18 +8,21 @@ import {
   applyHubNodeSizes,
 } from "../../utils/knowledgeMapElements";
 import { IC } from "../../icons/Icons";
+import { useTheme } from "../../context/ThemeContext";
 
 registerCytoscapeExtensions();
 
 const D = "div";
 
 export default function KnowledgeGraphView({ graph, chatId, baseUrl, loading, initialFilter = "all" }) {
+  const { theme } = useTheme();
   const containerRef = useRef(null);
   const cyRef = useRef(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [showLabels, setShowLabels] = useState(true);
   const [saving, setSaving] = useState(false);
   const [selectedPdf, setSelectedPdf] = useState(initialFilter);
+  const [expandedNode, setExpandedNode] = useState(null);
 
   useEffect(() => {
     if (initialFilter) {
@@ -62,6 +65,31 @@ export default function KnowledgeGraphView({ graph, chatId, baseUrl, loading, in
   }, [chatId, baseUrl, loading]);
 
   useEffect(() => {
+    if (!cyRef.current) return;
+    const cy = cyRef.current;
+    const isDark = theme === "dark";
+
+    // Update graph styles based on theme (without overriding node colors!)
+    cy.style()
+      .selector("node")
+      .style({
+        "border-color": "#000000", // Always black border
+      })
+      .selector("node.pdf-cluster")
+      .style({
+        "color": isDark ? "#b0b0cc" : "#64748b",
+      })
+      .selector("edge")
+      .style({
+        "line-color": "#000000", // Always black edges
+        "target-arrow-color": "#000000", // Always black arrows
+        "text-background-color": isDark ? "#12121e" : "#ffffff",
+        "color": "#000000", // Always black edge labels
+      })
+      .update();
+  }, [theme]);
+
+  useEffect(() => {
     if (!containerRef.current || !graph?.nodes) return;
 
     const elements = toCytoscapeElements(graph);
@@ -86,7 +114,7 @@ export default function KnowledgeGraphView({ graph, chatId, baseUrl, loading, in
         const cy = cyRef.current;
         cy.elements().remove();
         cy.add(elements);
-        
+
         const layout = cy.layout(layoutForGraph(graph));
         layout.one("layoutstop", () => {
           console.log("[GraphView] Layout finished");
@@ -100,6 +128,7 @@ export default function KnowledgeGraphView({ graph, chatId, baseUrl, loading, in
 
       console.log("[GraphView] Initializing new Cytoscape instance...");
       try {
+        const isDark = theme === "dark";
         cyRef.current = cytoscape({
           container: container,
           elements,
@@ -110,8 +139,51 @@ export default function KnowledgeGraphView({ graph, chatId, baseUrl, loading, in
 
         const cy = cyRef.current;
 
+        // Initial theme application (without overriding node colors!)
+        cy.style()
+          .selector("node")
+          .style({
+            "border-color": "#000000", // Always black border
+          })
+          .selector("node.pdf-cluster")
+          .style({
+            "color": isDark ? "#b0b0cc" : "#64748b",
+          })
+          .selector("edge")
+          .style({
+            "line-color": "#000000", // Always black edges
+            "target-arrow-color": "#000000", // Always black arrows
+            "text-background-color": isDark ? "#12121e" : "#ffffff",
+            "color": "#000000", // Always black edge labels
+          })
+          .update();
+
         cy.on("dragfree", "node", saveState);
-        
+        // Node tap/click to expand and show chunk text
+        cy.on("tap", "node", (evt) => {
+          const nodeData = evt.target.data();
+          console.log("✅ Clicked node data:", nodeData);
+          console.log("✅ Chunk text found:", nodeData.chunkText);
+
+          let finalChunkText = nodeData.chunkText || "";
+
+          // If no chunkText, use label + fallback
+          if (!finalChunkText || finalChunkText.trim().length === 0) {
+            finalChunkText = nodeData.label || "No PDF text available for this node";
+          }
+
+          // Make sure it's not too short/empty
+          if (finalChunkText.length < 20) {
+            finalChunkText = `${nodeData.label || "Node"} - PDF context related to this concept`;
+          }
+
+          setExpandedNode({
+            label: nodeData.label || "Node",
+            sourcePdf: nodeData.sourcePdf || "",
+            chunkText: finalChunkText
+          });
+        });
+
         // Tooltip/Hover logic
         cy.on("mouseover", "node", (e) => {
           const node = e.target;
@@ -152,7 +224,7 @@ export default function KnowledgeGraphView({ graph, chatId, baseUrl, loading, in
     const cy = cyRef.current;
     if (searchTerm) {
       const lower = searchTerm.toLowerCase();
-      const matches = cy.nodes().filter((n) => 
+      const matches = cy.nodes().filter((n) =>
         n.data("label")?.toLowerCase().includes(lower)
       );
       cy.nodes().addClass("dim");
@@ -170,6 +242,21 @@ export default function KnowledgeGraphView({ graph, chatId, baseUrl, loading, in
     cyRef.current.nodes().style("text-opacity", showLabels ? 1 : 0);
   }, [showLabels]);
 
+  // Close modal when Escape key is pressed
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape") {
+        setExpandedNode(null);
+      }
+    };
+    if (expandedNode) {
+      document.addEventListener("keydown", handleKeyDown);
+    }
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [expandedNode]);
+
   useEffect(() => {
     if (!cyRef.current) return;
     const cy = cyRef.current;
@@ -183,20 +270,20 @@ export default function KnowledgeGraphView({ graph, chatId, baseUrl, loading, in
         const sourcePdf = (n.data("sourcePdf") || "").toLowerCase();
         const label = (n.data("label") || "").toLowerCase();
         const isCluster = n.data("nodeType") === "pdf_cluster";
-        
+
         return sourcePdf === lowerSelected || (isCluster && label.includes(lowerSelected.replace(".pdf", "")));
       });
-      
+
       cy.nodes().addClass("dim-hidden");
       pdfNodes.removeClass("dim-hidden");
-      
+
       // Ensure parents of visible nodes are also visible
       pdfNodes.parents().removeClass("dim-hidden");
-      
+
       cy.edges().addClass("dim-hidden");
       pdfNodes.connectedEdges().removeClass("dim-hidden");
     }
-    
+
     // Give layout a moment to settle before fitting
     setTimeout(() => {
       if (cyRef.current) cyRef.current.fit(undefined, 60);
@@ -243,18 +330,18 @@ export default function KnowledgeGraphView({ graph, chatId, baseUrl, loading, in
           <button className="km-btn-icon" onClick={handleResetLayout} title="Reset Layout">
             <IC.Refresh />
           </button>
-          <button 
-            className={`km-btn-icon ${!showLabels ? "km-btn-off" : ""}`} 
-            onClick={() => setShowLabels(!showLabels)} 
+          <button
+            className={`km-btn-icon ${!showLabels ? "km-btn-off" : ""}`}
+            onClick={() => setShowLabels(!showLabels)}
             title="Toggle Labels"
           >
             {showLabels ? <IC.Eye /> : <IC.EyeOff />}
           </button>
 
-          
-          <select 
-            className="km-graph-filter" 
-            value={selectedPdf} 
+
+          <select
+            className="km-graph-filter"
+            value={selectedPdf}
             onChange={(e) => setSelectedPdf(e.target.value)}
           >
             {pdfOptions.map(opt => (
@@ -269,6 +356,31 @@ export default function KnowledgeGraphView({ graph, chatId, baseUrl, loading, in
       </D>
 
       <D className="km-graph-body-only" ref={containerRef} />
+
+      {/* Expanded Node Modal */}
+      {expandedNode && (
+        <D className="km-node-modal-overlay" onClick={() => setExpandedNode(null)}>
+          <D className="km-node-modal" onClick={(e) => e.stopPropagation()}>
+            <D className="km-node-modal-header">
+              <D className="km-node-modal-title">{expandedNode.label}</D>
+              {expandedNode.sourcePdf && (
+                <D className="km-node-modal-source">Source: {expandedNode.sourcePdf}</D>
+              )}
+              <button
+                className="km-node-modal-close"
+                onClick={() => setExpandedNode(null)}
+              >
+                ✕
+              </button>
+            </D>
+            <D className="km-node-modal-content">
+              <D className="km-node-modal-chunk-text" style={{ whiteSpace: "pre-wrap", lineHeight: "1.9" }}>
+                {expandedNode.chunkText}
+              </D>
+            </D>
+          </D>
+        </D>
+      )}
     </D>
   );
 }

@@ -17,3 +17,8 @@ print(f"GROQ_API_KEY: {os.getenv('GROQ_API_KEY')}")
 print("Attempting to load SentenceTransformer model...")
 model = SentenceTransformer("all-MiniLM-L6-v2")
 print("Model loaded successfully!")
+
+print("Testing core.groq imports...")
+from core.groq import GROQ_MODEL, call_groq_efficient
+print(f"Groq Model configured: {GROQ_MODEL}")
+print("Core Groq utility ready.")

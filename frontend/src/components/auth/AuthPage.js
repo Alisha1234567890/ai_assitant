@@ -1,7 +1,6 @@
 import React, { useState } from "react";
-import { IC } from "../../icons/Icons";
+import { IC, Dots } from "../../icons/Icons";
 import { useAuth } from "../../context/AuthContext";
-import Dots from "../common/Dots";
 
 export default function AuthPage() {
   const { signup, login } = useAuth();
@@ -23,10 +22,11 @@ export default function AuthPage() {
         await login({ email, password });
       }
     } catch (err) {
+      console.error("Login/Signup error:", err);
       const msg =
         err.response?.data?.detail ||
         (typeof err.response?.data === "string" ? err.response.data : null) ||
-        "Something went wrong. Please try again.";
+        (err.message === "Network Error" ? "Cannot connect to server. Is the backend running?" : "Something went wrong. Please try again.");
       setError(Array.isArray(msg) ? msg.map((m) => m.msg || m).join(", ") : msg);
     }
     setSubmitting(false);

@@ -7,9 +7,12 @@ faiss-cpu
 numpy
 scikit-learn
 requests
+httpx
 motor
 bcrypt
 PyJWT
 python-docx
 pandas
 openpyxl
+plotly
+anyio

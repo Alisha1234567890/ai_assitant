@@ -1,5 +1,6 @@
 import bcrypt
 import jwt
+import anyio
 from datetime import datetime, timedelta
 from fastapi import HTTPException, Header
 from core.database import JWT_SECRET, JWT_ALGO, JWT_EXPIRE_DAYS
@@ -7,12 +8,16 @@ from core.database import JWT_SECRET, JWT_ALGO, JWT_EXPIRE_DAYS
 def normalize_email(email: str) -> str:
     return email.strip().lower()
 
-def hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(rounds=10)).decode("utf-8")
+async def hash_password(password: str) -> str:
+    return await anyio.to_thread.run_sync(
+        lambda: bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(rounds=10)).decode("utf-8")
+    )
 
-def verify_password(password: str, password_hash: str) -> bool:
+async def verify_password(password: str, password_hash: str) -> bool:
     try:
-        return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
+        return await anyio.to_thread.run_sync(
+            lambda: bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
+        )
     except Exception:
         return False
 

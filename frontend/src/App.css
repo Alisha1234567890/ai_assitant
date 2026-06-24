@@ -100,3 +100,83 @@ input[type="text"] {
   font-size: 0.9rem;
   color: #374151;
 }
+
+/* Expanded Node Modal Styles */
+.km-node-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.km-node-modal {
+  background: white;
+  border-radius: 12px;
+  max-width: 600px;
+  width: 90%;
+  max-height: 80vh;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.km-node-modal-header {
+  background: linear-gradient(135deg, #FF6B35, #8B5CF6);
+  color: white;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  position: relative;
+}
+
+.km-node-modal-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.km-node-modal-source {
+  font-size: 0.9rem;
+  opacity: 0.9;
+}
+
+.km-node-modal-close {
+  position: absolute;
+  top: 15px;
+  right: 20px;
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  color: white;
+  font-size: 1.5rem;
+  cursor: pointer;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.km-node-modal-close:hover {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.km-node-modal-content {
+  padding: 25px;
+  overflow-y: auto;
+  max-height: calc(80vh - 100px);
+}
+
+.km-node-modal-chunk-text {
+  font-size: 1rem;
+  line-height: 1.7;
+  color: #1F2937;
+  margin: 0;
+  white-space: pre-wrap;
+}
